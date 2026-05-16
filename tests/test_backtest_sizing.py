@@ -47,6 +47,62 @@ class BacktestSizingTests(unittest.TestCase):
         self.assertLessEqual(max(values), 102_000.0)
         self.assertAlmostEqual(result["metrics"]["total_return"], 0.02)
 
+    def test_backtest_costs_reduce_final_equity_and_returns(self) -> None:
+        data = {
+            "TEST": [
+                {"date": "2023-01-01", "close": 100.0, "sma_5": 101.0, "sma_20": 100.0},
+                {"date": "2023-01-02", "close": 120.0, "sma_5": 121.0, "sma_20": 100.0},
+                {"date": "2023-01-03", "close": 130.0, "sma_5": 129.0, "sma_20": 130.0},
+                {"date": "2023-01-04", "close": 130.0, "sma_5": 129.0, "sma_20": 130.0},
+            ]
+        }
+        strategy = {
+            "name": "moving_average_crossover",
+            "version": "0.1.0",
+            "strategy_params": {"short_window": 5, "long_window": 20},
+        }
+
+        zero_cost = BacktestAgent(starting_capital=100_000.0, max_capital_per_trade_pct=0.10).run_backtest(strategy, data)
+        with_costs = BacktestAgent(
+            starting_capital=100_000.0,
+            max_capital_per_trade_pct=0.10,
+            commission_per_trade=5.0,
+            slippage_pct=0.01,
+        ).run_backtest(strategy, data)
+
+        self.assertLess(
+            with_costs["per_symbol_results"]["TEST"]["portfolio_values"][-1],
+            zero_cost["per_symbol_results"]["TEST"]["portfolio_values"][-1],
+        )
+        self.assertLess(with_costs["metrics"]["total_return"], zero_cost["metrics"]["total_return"])
+
+    def test_backtest_result_discloses_cost_assumptions(self) -> None:
+        agent = BacktestAgent(commission_per_trade=1.25, slippage_pct=0.0025)
+
+        result = agent.run_backtest(
+            {
+                "name": "moving_average_crossover",
+                "version": "0.1.0",
+                "strategy_params": {"short_window": 5, "long_window": 20},
+            },
+            {
+                "TEST": [
+                    {"date": "2023-01-01", "close": 100.0, "sma_5": 101.0, "sma_20": 100.0},
+                    {"date": "2023-01-02", "close": 100.0, "sma_5": 101.0, "sma_20": 100.0},
+                    {"date": "2023-01-03", "close": 120.0, "sma_5": 101.0, "sma_20": 100.0},
+                ]
+            },
+        )
+
+        self.assertEqual(
+            result["cost_assumptions"],
+            {"commission_per_trade": 1.25, "slippage_pct": 0.0025},
+        )
+        self.assertEqual(
+            result["per_symbol_results"]["TEST"]["cost_assumptions"],
+            {"commission_per_trade": 1.25, "slippage_pct": 0.0025},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

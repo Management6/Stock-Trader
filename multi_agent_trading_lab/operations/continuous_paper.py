@@ -124,6 +124,8 @@ class RealPaperStepRunner:
             starting_capital=float(settings.get("backtest", {}).get("starting_capital", 100_000.0)),
             max_capital_per_trade_pct=float(settings.get("backtest", {}).get("max_capital_per_trade_pct", 0.10)),
             allow_leverage=bool(settings.get("backtest", {}).get("allow_leverage", False)),
+            commission_per_trade=float(settings.get("backtest", {}).get("commission_per_trade", 0.0)),
+            slippage_pct=float(settings.get("backtest", {}).get("slippage_pct", 0.0)),
         )
         self.risk_policy = RiskPolicy.from_config(settings.get("risk", {}))
         self.risk_agent = RiskAgent(policy=self.risk_policy)

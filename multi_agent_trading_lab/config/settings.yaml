@@ -166,6 +166,8 @@ backtest:
   starting_capital: 100000
   max_capital_per_trade_pct: 0.10
   allow_leverage: false
+  commission_per_trade: 0.0
+  slippage_pct: 0.0
 risk:
   kill_switch_enabled: false
   min_backtest_return: -0.05
@@ -179,9 +181,36 @@ risk:
   max_open_positions: 3
   daily_loss_limit: 1000.0
   allowed_symbols:
+    - CBA.AX
+    - NAB.AX
+    - ANZ.AX
+    - WBC.AX
+    - BHP.AX
+    - RIO.AX
+    - FMG.AX
+    - CSL.AX
+    - COH.AX
+    - RMD.AX
+    - WOW.AX
+    - COL.AX
+    - WES.AX
+    - TCL.AX
+    - MQG.AX
+    - TLS.AX
+    - YAL.AX
+    - SLX.AX
+    - NVDA
     - AAPL
     - MSFT
-    - SPY
+    - AMD
+    - PLTR
+    - CRWD
+    - PANW
+    - MDB
+    - GOOGL
+    - AMZN
+    - META
+    - TSLA
   blocked_symbols: []
   trading_hours_start: "09:30"
   trading_hours_end: "16:00"

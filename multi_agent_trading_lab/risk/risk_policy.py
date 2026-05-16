@@ -101,12 +101,20 @@ class RiskPolicy:
             return RiskDecision(False, "Kill switch is enabled.")
         if mode == "live":
             return RiskDecision(False, "Live execution requires a dedicated live policy override.")
-        if order.symbol in self.blocked_symbols:
-            return RiskDecision(False, f"{order.symbol} is blocked.")
-        if self.allowed_symbols and order.symbol not in self.allowed_symbols:
-            return RiskDecision(False, f"{order.symbol} is not in the allowed universe.")
         if self.repeated_failures >= self.repeated_failure_limit:
-            return RiskDecision(False, "Circuit breaker triggered after repeated failures.")
+            return RiskDecision(
+                False,
+                "Circuit breaker triggered after repeated failures.",
+                {"repeated_failures": self.repeated_failures, "repeated_failure_limit": self.repeated_failure_limit},
+            )
+        if order.symbol in self.blocked_symbols:
+            return RiskDecision(False, f"{order.symbol} is blocked.", {"symbol": order.symbol, "blocked_symbols": sorted(self.blocked_symbols)})
+        if self.allowed_symbols and order.symbol not in self.allowed_symbols:
+            return RiskDecision(
+                False,
+                f"{order.symbol} is not in the allowed universe.",
+                {"symbol": order.symbol, "allowed_symbols": sorted(self.allowed_symbols)},
+            )
         if self.enforce_trading_hours and not self._within_trading_hours(current_time or datetime.now()):
             return RiskDecision(False, "Order is outside configured trading hours.")
         if order.quantity > self.max_position_size:

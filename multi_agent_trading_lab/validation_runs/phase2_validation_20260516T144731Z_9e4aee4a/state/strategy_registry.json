@@ -1,0 +1,17 @@
+{
+  "validation_ma_s48_l105": {
+    "id": "validation_ma_s48_l105",
+    "reason": "validation candidate",
+    "stage": "candidate",
+    "strategy": {
+      "id": "validation_ma_s48_l105",
+      "name": "moving_average_crossover",
+      "strategy_params": {
+        "long_window": 105,
+        "short_window": 48
+      },
+      "version": "0.1.0"
+    },
+    "updated_at": "2026-05-16T14:47:31.597764+00:00"
+  }
+}

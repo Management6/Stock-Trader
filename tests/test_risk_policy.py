@@ -69,6 +69,20 @@ class RiskPolicyTests(unittest.TestCase):
         self.assertFalse(decision.approved)
         self.assertIn("allowed universe", decision.reason)
 
+    def test_allowed_symbol_rejection_includes_diagnostic_details(self) -> None:
+        policy = RiskPolicy(allowed_symbols={"AAPL", "MSFT"})
+
+        decision = policy.evaluate_order(
+            OrderRequest(symbol="WES.AX", side="buy", quantity=1, estimated_price=100.0).normalized(),
+            AccountState(cash=1000.0, equity=1000.0, buying_power=1000.0),
+            [],
+            mode="paper",
+        )
+
+        self.assertFalse(decision.approved)
+        self.assertEqual(decision.details["symbol"], "WES.AX")
+        self.assertEqual(decision.details["allowed_symbols"], ["AAPL", "MSFT"])
+
 
 if __name__ == "__main__":
     unittest.main()

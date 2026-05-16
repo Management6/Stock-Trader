@@ -47,6 +47,7 @@ class ExecutionEngine:
 
         account = self.broker.get_account_state()
         positions = self.broker.list_positions()
+        self._sync_risk_policy_from_system_state()
         decision = self.risk_policy.evaluate_order(normalized, account, positions, mode=self.mode)
         if not decision.approved:
             return self._reject(normalized, decision.reason, "risk_rejected")
@@ -68,6 +69,11 @@ class ExecutionEngine:
 
         status = self.broker.submit_order(normalized)
         self.audit_log.record("broker_action", {"order": normalized.to_dict(), "status": status.to_dict()})
+        if status.status == "rejected":
+            self._record_repeated_failure(status.message, {"order": normalized.to_dict(), "status": status.to_dict()})
+        else:
+            self.system_state.reset_repeated_failures()
+            self.risk_policy.repeated_failures = 0
         return status
 
     def validate_order(self, order: OrderRequest) -> list[str]:
@@ -101,6 +107,29 @@ class ExecutionEngine:
             message=reason,
             timestamp=datetime.now(UTC).isoformat(),
         )
-        self.audit_log.record(event_type, {"order": order.to_dict(), "reason": reason, "status": status.to_dict()})
+        metadata = {"order": order.to_dict(), "reason": reason, "status": status.to_dict()}
+        self.audit_log.record(event_type, metadata)
+        if event_type in {"risk_rejected", "validation_rejected"}:
+            self._record_repeated_failure(reason, metadata)
         return status
 
+    def _sync_risk_policy_from_system_state(self) -> None:
+        state = self.system_state.read()
+        self.risk_policy.kill_switch_enabled = bool(self.risk_policy.kill_switch_enabled or state.get("kill_switch_enabled", False))
+        self.risk_policy.repeated_failures = int(state.get("repeated_failures", 0))
+
+    def _record_repeated_failure(self, reason: str, metadata: dict[str, Any]) -> None:
+        before = self.system_state.read()
+        previous_failures = int(before.get("repeated_failures", 0))
+        state = self.system_state.record_repeated_failure(reason, limit=self.risk_policy.repeated_failure_limit)
+        self.risk_policy.repeated_failures = int(state.get("repeated_failures", 0))
+        if previous_failures < self.risk_policy.repeated_failure_limit <= self.risk_policy.repeated_failures:
+            self.audit_log.record(
+                "circuit_breaker_activated",
+                {
+                    "reason": state.get("circuit_breaker_reason"),
+                    "repeated_failures": self.risk_policy.repeated_failures,
+                    "repeated_failure_limit": self.risk_policy.repeated_failure_limit,
+                    "last_failure": metadata,
+                },
+            )

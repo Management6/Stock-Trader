@@ -94,7 +94,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         },
         "custom": {"return_weight": 1.0, "drawdown_penalty": 1.0},
     },
-    "backtest": {"starting_capital": 100_000.0, "max_capital_per_trade_pct": 0.10, "allow_leverage": False},
+    "backtest": {
+        "starting_capital": 100_000.0,
+        "max_capital_per_trade_pct": 0.10,
+        "allow_leverage": False,
+        "commission_per_trade": 0.0,
+        "slippage_pct": 0.0,
+    },
     "risk": {
         "kill_switch_enabled": False,
         "min_backtest_return": -0.05,
@@ -104,7 +110,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_position_size": 25,
         "max_capital_per_trade": 2_500.0,
         "max_open_positions": 3,
-        "allowed_symbols": ["AAPL", "MSFT", "SPY"],
+        "allowed_symbols": ["WES.AX", "YAL.AX", "SLX.AX", "NVDA"],
         "blocked_symbols": [],
     },
     "broker": {
@@ -142,6 +148,8 @@ class TradingLabOrchestrator:
             starting_capital=float(backtest_settings.get("starting_capital", 100_000.0)),
             max_capital_per_trade_pct=float(backtest_settings.get("max_capital_per_trade_pct", 0.10)),
             allow_leverage=bool(backtest_settings.get("allow_leverage", False)),
+            commission_per_trade=float(backtest_settings.get("commission_per_trade", 0.0)),
+            slippage_pct=float(backtest_settings.get("slippage_pct", 0.0)),
         )
         self.risk_policy = RiskPolicy.from_config(self.settings.get("risk", {}))
         self.risk_agent = RiskAgent(policy=self.risk_policy)
@@ -175,6 +183,7 @@ class TradingLabOrchestrator:
         self.risk_policy.kill_switch_enabled = bool(
             self.risk_policy.kill_switch_enabled or state.get("kill_switch_enabled", False)
         )
+        self.risk_policy.repeated_failures = int(state.get("repeated_failures", self.risk_policy.repeated_failures))
         self.broker = self._build_broker()
         execution_settings = self.settings.get("execution", {})
         broker_settings = self.settings.get("broker", {})
@@ -340,6 +349,7 @@ class TradingLabOrchestrator:
             source_strategy=strategy.identifier,
             estimated_price=float(latest_bar["close"]),
         )
+        self._sync_risk_policy_from_system_state()
         risk_decision = self.risk_agent.assess_trade(
             order,
             self.broker.get_account_state(),
@@ -347,8 +357,9 @@ class TradingLabOrchestrator:
             mode="paper",
         )
         if not risk_decision.approved:
-            self.audit_log.record("rejected_trade", {"order": order.to_dict(), "reason": risk_decision.reason})
-            metadata = {"order": order.to_dict(), "reason": risk_decision.reason}
+            metadata = {"order": order.to_dict(), "reason": risk_decision.reason, "details": risk_decision.details}
+            self.audit_log.record("rejected_trade", metadata)
+            self._record_repeated_failure(risk_decision.reason, metadata)
             self.alert_manager.emit(
                 "risk_breach",
                 AlertSeverity.WARNING,
@@ -370,6 +381,7 @@ class TradingLabOrchestrator:
 
         status = self.execution_agent.submit_order(order)
         if status.status == "rejected":
+            self._record_repeated_failure(status.message, {"status": status.to_dict()})
             self.alert_manager.emit(
                 "paper_cycle_failure",
                 AlertSeverity.CRITICAL,
@@ -383,6 +395,31 @@ class TradingLabOrchestrator:
 
     def _paper_risk_limits_summary(self) -> str:
         return f"Paper mode risk limits: max_drawdown={float(self.risk_policy.paper_max_drawdown):.2f}"
+
+    def _sync_risk_policy_from_system_state(self) -> None:
+        state = self.system_state.read()
+        self.risk_policy.kill_switch_enabled = bool(self.risk_policy.kill_switch_enabled or state.get("kill_switch_enabled", False))
+        self.risk_policy.repeated_failures = int(state.get("repeated_failures", 0))
+
+    def _record_repeated_failure(self, reason: str, metadata: dict[str, Any]) -> None:
+        before = self.system_state.read()
+        previous_failures = int(before.get("repeated_failures", 0))
+        state = self.system_state.record_repeated_failure(reason, limit=self.risk_policy.repeated_failure_limit)
+        self.risk_policy.repeated_failures = int(state.get("repeated_failures", 0))
+        if previous_failures < self.risk_policy.repeated_failure_limit <= self.risk_policy.repeated_failures:
+            payload = {
+                "reason": state.get("circuit_breaker_reason"),
+                "repeated_failures": self.risk_policy.repeated_failures,
+                "repeated_failure_limit": self.risk_policy.repeated_failure_limit,
+                "last_failure": metadata,
+            }
+            self.audit_log.record("circuit_breaker_activated", payload)
+            self.alert_manager.emit(
+                "circuit_breaker_activated",
+                AlertSeverity.CRITICAL,
+                str(state.get("circuit_breaker_reason") or "Circuit breaker activated after repeated failures."),
+                metadata=payload,
+            )
 
     def _recent_rejections(self, symbol: str, limit: int = 10) -> int:
         records = self.audit_log.list_recent(limit)

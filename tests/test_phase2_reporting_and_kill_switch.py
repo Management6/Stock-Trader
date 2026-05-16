@@ -92,6 +92,20 @@ class DailyPaperReportTests(unittest.TestCase):
 
 
 class KillSwitchTests(unittest.TestCase):
+    def test_circuit_breaker_failure_count_persists_and_resets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = SystemStateStore(Path(tmpdir) / "system_state.json")
+
+            first = state.record_repeated_failure("risk_rejected")
+            second = state.record_repeated_failure("broker_rejected")
+            reset = state.reset_repeated_failures()
+
+            self.assertEqual(first["repeated_failures"], 1)
+            self.assertEqual(second["repeated_failures"], 2)
+            self.assertEqual(second["last_repeated_failure_reason"], "broker_rejected")
+            self.assertEqual(reset["repeated_failures"], 0)
+            self.assertIsNone(reset.get("last_repeated_failure_reason"))
+
     def test_activate_kill_switch_sets_state_audits_and_emits_critical_alert(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

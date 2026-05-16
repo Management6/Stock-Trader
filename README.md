@@ -378,6 +378,13 @@ Historical daily OHLCV data is configured in
 
 Named universes are configured under `universes`, with `data.default_universe`
 selecting the one used by research and backtest scripts unless overridden.
+Paper trading uses the same active universe by default: `risk.allowed_symbols`
+in `multi_agent_trading_lab/config/settings.yaml` is set to match the default
+`full_mix` universe. If you change `data.default_universe`, update
+`risk.allowed_symbols` at the same time unless you intentionally want paper
+orders outside the allow-list to be rejected. Those rejections are recorded in
+the audit log and daily paper reports with the rejected symbol and configured
+allow-list.
 
 Example:
 
@@ -482,6 +489,9 @@ docs/aidlc/
 
 ## Important Limits
 
-This repository does not model slippage, taxes, order-book depth, corporate
-actions, market halts, or production monitoring yet. Treat every workflow as a
-research scaffold until a full AI-DLC Operations phase proves readiness.
+Backtests disclose fixed `commission_per_trade` and percentage `slippage_pct`
+assumptions from `backtest` config; both default to `0.0` to preserve historical
+results unless explicitly configured. This repository still does not model
+taxes, order-book depth, corporate actions, market halts, or production
+monitoring yet. Treat every workflow as a research scaffold until a full AI-DLC
+Operations phase proves readiness.

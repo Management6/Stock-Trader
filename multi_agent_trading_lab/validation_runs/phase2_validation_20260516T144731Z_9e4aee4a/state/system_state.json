@@ -1,0 +1,7 @@
+{
+  "kill_switch_enabled": true,
+  "kill_switch_reason": "validation persistence check",
+  "last_updated": "2026-05-16T14:47:31.599429+00:00",
+  "mode": "paper",
+  "notes": "Default safe state."
+}

@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 market-data = []
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.4.0"]
 
 [project.scripts]
 trading-lab-example = "scripts.run_backtest_example:main"
@@ -35,3 +35,10 @@ include = ["multi_agent_trading_lab*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 160
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

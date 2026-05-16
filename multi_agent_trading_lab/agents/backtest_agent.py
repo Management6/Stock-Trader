@@ -26,11 +26,15 @@ class BacktestAgent(BaseAgent):
         starting_capital: float = 100_000.0,
         max_capital_per_trade_pct: float = 0.10,
         allow_leverage: bool = False,
+        commission_per_trade: float = 0.0,
+        slippage_pct: float = 0.0,
     ) -> None:
         super().__init__("backtest_agent")
         self.starting_capital = starting_capital
         self.max_capital_per_trade_pct = max_capital_per_trade_pct
         self.allow_leverage = allow_leverage
+        self.commission_per_trade = commission_per_trade
+        self.slippage_pct = slippage_pct
 
     def run_backtest(self, strategy_config: dict[str, Any], data: MarketData) -> dict[str, Any]:
         per_symbol_results = {
@@ -46,6 +50,7 @@ class BacktestAgent(BaseAgent):
             "strategy": strategy_config,
             "per_symbol_results": per_symbol_results,
             "metrics": metrics,
+            "cost_assumptions": self._cost_assumptions(),
         }
 
     def _run_single_symbol_backtest(self, strategy_config: dict[str, Any], symbol: str, bars: list[dict[str, Any]]) -> dict[str, Any]:
@@ -56,6 +61,8 @@ class BacktestAgent(BaseAgent):
             initial_cash=self.starting_capital,
             max_capital_per_trade_pct=self.max_capital_per_trade_pct,
             allow_leverage=self.allow_leverage,
+            commission_per_trade=self.commission_per_trade,
+            slippage_pct=self.slippage_pct,
         )
         portfolio_values = [env.state.portfolio_value]
         done = False
@@ -64,7 +71,7 @@ class BacktestAgent(BaseAgent):
             state, _, done = env.step(signal)
             portfolio_values.append(state.portfolio_value)
         metrics = self.evaluate_results(portfolio_values)
-        return {"symbol": symbol, "portfolio_values": portfolio_values, "metrics": metrics}
+        return {"symbol": symbol, "portfolio_values": portfolio_values, "metrics": metrics, "cost_assumptions": self._cost_assumptions()}
 
     def evaluate_results(self, results: list[float]) -> dict[str, float | int | None]:
         """Compute total return, max drawdown, and annualized Sharpe ratio."""
@@ -85,6 +92,12 @@ class BacktestAgent(BaseAgent):
             "sharpe": sum(sharpes) / len(sharpes) if sharpes else None,
             "history_points": min(history_points) if history_points else None,
             "symbols_tested": len(metrics),
+        }
+
+    def _cost_assumptions(self) -> dict[str, float]:
+        return {
+            "commission_per_trade": float(self.commission_per_trade),
+            "slippage_pct": float(self.slippage_pct),
         }
 
     def run(self, strategy_config: dict[str, Any], data: MarketData) -> AgentResult:

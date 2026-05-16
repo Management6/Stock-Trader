@@ -25,6 +25,8 @@ class TradingEnvironment:
         initial_cash: float = 10_000.0,
         max_capital_per_trade_pct: float = 0.10,
         allow_leverage: bool = False,
+        commission_per_trade: float = 0.0,
+        slippage_pct: float = 0.0,
     ) -> None:
         if len(bars) < 2:
             raise ValueError("TradingEnvironment requires at least two bars")
@@ -32,10 +34,16 @@ class TradingEnvironment:
             raise ValueError("initial_cash must be positive")
         if not 0 < max_capital_per_trade_pct <= 1:
             raise ValueError("max_capital_per_trade_pct must be in (0, 1]")
+        if commission_per_trade < 0:
+            raise ValueError("commission_per_trade must be non-negative")
+        if slippage_pct < 0:
+            raise ValueError("slippage_pct must be non-negative")
         self.bars = bars
         self.initial_cash = initial_cash
         self.max_capital_per_trade_pct = max_capital_per_trade_pct
         self.allow_leverage = allow_leverage
+        self.commission_per_trade = commission_per_trade
+        self.slippage_pct = slippage_pct
         self.reset()
 
     def reset(self) -> TradingState:
@@ -64,10 +72,13 @@ class TradingEnvironment:
         if action == 1 and self.position == 0:
             max_trade_notional = previous_value * self.max_capital_per_trade_pct
             available_notional = max_trade_notional if self.allow_leverage else min(self.cash, max_trade_notional)
-            self.position = int(available_notional // current_price)
-            self.cash -= self.position * current_price
+            fill_price = current_price * (1.0 + self.slippage_pct)
+            self.position = int(max(0.0, available_notional - self.commission_per_trade) // fill_price)
+            if self.position > 0:
+                self.cash -= self.position * fill_price + self.commission_per_trade
         elif action == 0 and self.position > 0:
-            self.cash += self.position * current_price
+            fill_price = current_price * (1.0 - self.slippage_pct)
+            self.cash += self.position * fill_price - self.commission_per_trade
             self.position = 0
 
         self.index += 1

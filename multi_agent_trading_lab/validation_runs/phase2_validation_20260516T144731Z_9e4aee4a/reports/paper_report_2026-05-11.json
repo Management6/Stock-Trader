@@ -1,0 +1,202 @@
+{
+  "alerts": [
+    {
+      "event_type": "strategy_promotion_awaiting_approval",
+      "id": "ed06a6c9-d165-4220-a143-2a03e8b225ff",
+      "message": "Strategy validation_ma_s48_l105 is awaiting paper promotion approval.",
+      "metadata": {
+        "metrics": {
+          "max_drawdown": -0.08,
+          "sharpe_ratio": 0.7,
+          "total_return": 0.12
+        },
+        "rationale": "Validation candidate passed synthetic research risk checks."
+      },
+      "severity": "INFO",
+      "strategy_id": "validation_ma_s48_l105",
+      "symbol": null,
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "repeated_order_rejection",
+      "id": "3b0814f8-1ee6-479e-b7ca-518274da70d4",
+      "message": "Repeated paper order rejections detected for WES.AX.",
+      "metadata": {
+        "attempt": 1
+      },
+      "severity": "CRITICAL",
+      "strategy_id": "validation_reject_s1",
+      "symbol": "WES.AX",
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "drawdown_threshold_breach",
+      "id": "5523c962-89eb-4e03-90e6-48d8129feb9d",
+      "message": "Strategy validation_drawdown_s1 breached drawdown threshold.",
+      "metadata": {
+        "metrics": {
+          "max_drawdown": -0.24,
+          "sharpe_ratio": 0.1,
+          "total_return": 0.04
+        }
+      },
+      "severity": "WARNING",
+      "strategy_id": "validation_drawdown_s1",
+      "symbol": null,
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "paper_cycle_failure",
+      "id": "059cd159-d878-40c0-abc2-42a09c7b4db9",
+      "message": "Paper cycle failed during validation fixture.",
+      "metadata": {
+        "reason": "synthetic exception in validation fixture"
+      },
+      "severity": "CRITICAL",
+      "strategy_id": null,
+      "symbol": null,
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "kill_switch_activated",
+      "id": "51e677f5-16c4-4eac-98fb-5fe425db9769",
+      "message": "Kill switch activated: validation manual stop",
+      "metadata": {
+        "operator": "phase2_validation"
+      },
+      "severity": "CRITICAL",
+      "strategy_id": null,
+      "symbol": null,
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "risk_breach",
+      "id": "5bb65c1d-4f19-480d-82d4-aefbcadc90d0",
+      "message": "Validation risk breach.",
+      "metadata": {},
+      "severity": "WARNING",
+      "strategy_id": "validation_report_s1",
+      "symbol": "NVDA",
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    }
+  ],
+  "date": "2026-05-11",
+  "ending_equity": 100500.0,
+  "notable_changes": [
+    "6 alert(s) were triggered in the reporting window.",
+    "6 risk event(s) were recorded in the reporting window."
+  ],
+  "open_positions": [
+    {
+      "average_price": 400.0,
+      "market_price": 500.0,
+      "quantity": 4,
+      "symbol": "NVDA",
+      "unrealized_pnl": 400.0
+    }
+  ],
+  "order_counts_by_status": {
+    "filled": 1,
+    "rejected": 1
+  },
+  "realized_pnl": null,
+  "risk_events": [
+    {
+      "event_type": "rejected_trade",
+      "id": "24e580fd-f221-420a-9046-b8b44977cd00",
+      "payload": {
+        "order": {
+          "source_strategy": "validation_reject_s1",
+          "symbol": "WES.AX"
+        },
+        "reason": "max position",
+        "scenario": "repeated_order_rejections"
+      },
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "rejected_trade",
+      "id": "11e1f7b9-86e9-4581-9332-d9a99dee3dac",
+      "payload": {
+        "order": {
+          "source_strategy": "validation_reject_s1",
+          "symbol": "WES.AX"
+        },
+        "reason": "max position",
+        "scenario": "repeated_order_rejections"
+      },
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "rejected_trade",
+      "id": "661606eb-b883-40bf-8af3-a2a0bed7d80c",
+      "payload": {
+        "order": {
+          "source_strategy": "validation_reject_s1",
+          "symbol": "WES.AX"
+        },
+        "reason": "max position",
+        "scenario": "repeated_order_rejections"
+      },
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "kill_switch_activated",
+      "id": "17b54cdc-e76d-47ed-8774-7970446e53a8",
+      "payload": {
+        "operator": "phase2_validation",
+        "reason": "validation manual stop",
+        "state": {
+          "kill_switch_enabled": true,
+          "kill_switch_reason": "validation manual stop",
+          "last_updated": "2026-05-16T14:47:31.599105+00:00",
+          "mode": "paper",
+          "notes": "Default safe state."
+        }
+      },
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "kill_switch_activated",
+      "id": "cedfe60e-61e0-46fb-be52-c0dd1fbe2847",
+      "payload": {
+        "operator": "phase2_validation",
+        "reason": "validation persistence check",
+        "state": {
+          "kill_switch_enabled": true,
+          "kill_switch_reason": "validation persistence check",
+          "last_updated": "2026-05-16T14:47:31.599429+00:00",
+          "mode": "paper",
+          "notes": "Default safe state."
+        }
+      },
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    },
+    {
+      "event_type": "rejected_trade",
+      "id": "6eb4c32b-0f8b-49f1-8fa3-9d256274ed8f",
+      "payload": {
+        "order": {
+          "symbol": "NVDA"
+        },
+        "reason": "validation risk event",
+        "scenario": "daily_report_generation"
+      },
+      "timestamp": "2026-05-11T09:00:00+00:00"
+    }
+  ],
+  "starting_equity": 100500.0,
+  "strategy_summary": {
+    "validation_report_s1": {
+      "order_count": 2,
+      "statuses": {
+        "filled": 1,
+        "rejected": 1
+      }
+    }
+  },
+  "text_report": "# Daily paper trading report - 2026-05-11\n\nStarting equity: 100500.00\nEnding equity: 100500.00\nUnrealized PnL: 400.00\nOpen positions: 1\nOrders by status: {'filled': 1, 'rejected': 1}\nRisk events: 6\nAlerts: 6\n\nNotable changes:\n- 6 alert(s) were triggered in the reporting window.\n- 6 risk event(s) were recorded in the reporting window.\n\nOpen positions:\n- NVDA: qty=4 avg=400.00 market=500.00 unrealized=400.00",
+  "unrealized_pnl": 400.0,
+  "window_end": "2026-05-11T23:59:59.999999+00:00",
+  "window_start": "2026-05-11T00:00:00+00:00"
+}

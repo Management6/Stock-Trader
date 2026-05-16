@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from multi_agent_trading_lab.agents.data_agent import DataAgent
 from multi_agent_trading_lab.data.universes import resolve_universe_symbols, validate_universe_symbols
-from multi_agent_trading_lab.orchestrator.orchestrator import TradingLabOrchestrator
+from multi_agent_trading_lab.orchestrator.orchestrator import TradingLabOrchestrator, load_settings
 from scripts.download_universe_data import main as download_main
 
 
@@ -62,6 +62,14 @@ class UniverseConfigTests(unittest.TestCase):
         )
 
         self.assertEqual(orchestrator._data_config()["symbols"], ["CBA.AX", "BHP.AX"])
+
+    def test_default_allowed_symbols_match_active_universe(self) -> None:
+        settings = load_settings("multi_agent_trading_lab/config/settings.yaml")
+
+        active_universe = {symbol.upper() for symbol in resolve_universe_symbols(settings)}
+        allowed_symbols = {symbol.upper() for symbol in settings["risk"]["allowed_symbols"]}
+
+        self.assertEqual(allowed_symbols, active_universe)
 
     def test_download_cli_uses_universe_override_and_reports_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

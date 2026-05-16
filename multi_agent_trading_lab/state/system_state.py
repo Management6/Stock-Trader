@@ -19,6 +19,8 @@ class SystemStateStore:
             return {
                 "mode": "paper",
                 "kill_switch_enabled": False,
+                "circuit_breaker_enabled": False,
+                "repeated_failures": 0,
                 "last_updated": datetime.now(UTC).isoformat(),
                 "notes": "Default safe state.",
             }
@@ -36,3 +38,20 @@ class SystemStateStore:
         state["kill_switch_reason"] = reason
         return self.write(state)
 
+    def record_repeated_failure(self, reason: str, limit: int | None = None) -> dict[str, Any]:
+        state = self.read()
+        failures = int(state.get("repeated_failures", 0)) + 1
+        state["repeated_failures"] = failures
+        state["last_repeated_failure_reason"] = reason
+        if limit is not None and failures >= limit:
+            state["circuit_breaker_enabled"] = True
+            state["circuit_breaker_reason"] = f"Repeated failure limit reached: {failures}/{limit}"
+        return self.write(state)
+
+    def reset_repeated_failures(self) -> dict[str, Any]:
+        state = self.read()
+        state["repeated_failures"] = 0
+        state["circuit_breaker_enabled"] = False
+        state["last_repeated_failure_reason"] = None
+        state["circuit_breaker_reason"] = None
+        return self.write(state)

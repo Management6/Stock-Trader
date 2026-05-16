@@ -12,6 +12,7 @@ from multi_agent_trading_lab.data.data_sources import (
     fetch_stock_data,
     load_universe_history,
 )
+from multi_agent_trading_lab.data.data_quality import DataQualityReport, validate_market_data
 from multi_agent_trading_lab.data.feature_engineering import add_strategy_features
 from multi_agent_trading_lab.data.universes import resolve_universe_symbols
 
@@ -29,6 +30,7 @@ class DataAgent(BaseAgent):
         self.settings = settings or {}
         self._universe_history: dict[str, Any] | None = None
         self.last_load_source = "not_loaded"
+        self.last_data_quality: DataQualityReport | None = None
 
     def fetch_data(self, symbols: list[str] | None = None, start_date: str | None = None, end_date: str | None = None) -> MarketData:
         """Return market data in the internal list-of-bars format."""
@@ -48,14 +50,14 @@ class DataAgent(BaseAgent):
                     )
                 )
                 self.last_load_source = "yfinance_cache"
-                return market_data
+                return self.validate_data_quality(market_data)
             except Exception:
                 fallback_end = str(resolved_end or datetime_today())
                 self.last_load_source = "synthetic_fallback"
-                return fetch_stock_data(resolved_symbols, resolved_start, fallback_end, use_yfinance=False)
+                return self.validate_data_quality(fetch_stock_data(resolved_symbols, resolved_start, fallback_end, use_yfinance=False))
         fallback_end = str(resolved_end or datetime_today())
         self.last_load_source = "synthetic"
-        return fetch_stock_data(resolved_symbols, resolved_start, fallback_end, use_yfinance=False)
+        return self.validate_data_quality(fetch_stock_data(resolved_symbols, resolved_start, fallback_end, use_yfinance=False))
 
     def get_universe_history(
         self,
@@ -97,6 +99,20 @@ class DataAgent(BaseAgent):
 
     def build_features(self, raw_data: MarketData, windows: list[int] | None = None) -> MarketData:
         return add_strategy_features(raw_data, windows or [5, 20])
+
+    def validate_data_quality(self, data: MarketData) -> MarketData:
+        data_config = self._data_config()
+        report = validate_market_data(
+            data,
+            as_of_date=str(data_config.get("as_of_date")) if data_config.get("as_of_date") else None,
+            max_staleness_days=data_config.get("max_staleness_days"),
+            max_gap_days=data_config.get("max_gap_days"),
+        )
+        self.last_data_quality = report
+        if not report.passed:
+            issue_summary = "; ".join(f"{issue.symbol}:{issue.code}" for issue in report.errors)
+            raise ValueError(f"Market data failed quality validation: {issue_summary}")
+        return data
 
     def run(self, symbols: list[str], start_date: str, end_date: str) -> AgentResult:
         raw_data = self.fetch_data(symbols, start_date, end_date)

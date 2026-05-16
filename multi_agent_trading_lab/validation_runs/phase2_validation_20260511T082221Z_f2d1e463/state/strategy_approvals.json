@@ -1,0 +1,26 @@
+{
+  "validation_ma_s48_l105": {
+    "decision_reason": null,
+    "metrics": {
+      "max_drawdown": -0.08,
+      "sharpe_ratio": 0.7,
+      "total_return": 0.12
+    },
+    "rationale": "Validation candidate passed synthetic research risk checks.",
+    "requested_at": "2026-05-11T08:22:21.734700+00:00",
+    "requester": "phase2_validation",
+    "reviewed_at": null,
+    "reviewer": null,
+    "status": "pending",
+    "strategy": {
+      "id": "validation_ma_s48_l105",
+      "name": "moving_average_crossover",
+      "strategy_params": {
+        "long_window": 105,
+        "short_window": 48
+      },
+      "version": "0.1.0"
+    },
+    "strategy_id": "validation_ma_s48_l105"
+  }
+}

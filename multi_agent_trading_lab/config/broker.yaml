@@ -1,0 +1,8 @@
+selected: "paper"
+paper:
+  state_path: "multi_agent_trading_lab/state/paper_broker_state.json"
+live:
+  enabled: false
+  provider: "alpaca_stub"
+  confirmation: ""
+  required_confirmation_value: "I_UNDERSTAND_LIVE_TRADING_RISK"

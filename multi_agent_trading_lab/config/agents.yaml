@@ -1,0 +1,30 @@
+agents:
+  discovery:
+    enabled: true
+    role: "Captures user intent, operating preferences, and autonomy phase."
+  data:
+    enabled: true
+    role: "Fetches market data and builds features."
+    tools:
+      - "yfinance optional adapter"
+      - "synthetic fallback data"
+  strategy:
+    enabled: true
+    role: "Proposes simple strategy variants."
+    variant_short_windows: [3, 5, 8]
+    variant_long_windows: [15, 20, 30]
+  backtest:
+    enabled: true
+    role: "Runs strategy simulations and calculates metrics."
+  risk:
+    enabled: true
+    role: "Applies strategy and trade risk constraints before deployment or execution."
+  execution:
+    enabled: true
+    role: "Routes approved order requests through the execution engine."
+  report:
+    enabled: true
+    role: "Formats experiment summaries for humans."
+  orchestrator:
+    enabled: true
+    role: "Coordinates staged research, paper, and live-stub workflows."

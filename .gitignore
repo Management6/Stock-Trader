@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.DS_Store
+
+# Runtime experiment memory.
+multi_agent_trading_lab/experiments/*.jsonl
+multi_agent_trading_lab/experiments/*.sqlite
+multi_agent_trading_lab/experiments/*.db
+multi_agent_trading_lab/state/*.json
+multi_agent_trading_lab/strategies/strategy_registry.json
+multi_agent_trading_lab/config/strategy_variants.json
+data/cache/
+
+# Generated AI-DLC artifacts and downloaded official rule bundles.
+aidlc-docs/
+.aidlc/aidlc-rules/aws-aidlc-rules/
+.aidlc/aidlc-rules/aws-aidlc-rule-details/

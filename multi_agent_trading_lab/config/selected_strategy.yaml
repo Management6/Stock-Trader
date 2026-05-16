@@ -1,0 +1,20 @@
+selected_strategy:
+  name: moving_average_crossover
+  version: "0.1.0"
+  params:
+    short_window: 6
+    long_window: 35
+
+selected_paper_strategies:
+  - name: example_ma
+    id: example_ma_s48_l105
+    version: "0.1.0"
+    params:
+      short_window: 48
+      long_window: 105
+  - name: example_ma
+    id: example_ma_s45_l110
+    version: "0.1.0"
+    params:
+      short_window: 45
+      long_window: 110

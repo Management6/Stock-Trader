@@ -1,0 +1,168 @@
+{
+  "manual_review_recommended": [
+    "Review generated daily report for clear position and order summary.",
+    "Use review_strategy_promotions.py --list against real state during operations.",
+    "Confirm one CRITICAL alert is enough to prompt operator review without alert spam.",
+    "Review whether drawdown breach wording gives enough context for rejection.",
+    "Operator should inspect synthetic failure trail as incident-review rehearsal.",
+    "Review kill-switch reason and confirm no-op expectation is clear.",
+    "Confirm real operators know kill switch persists until explicitly cleared.",
+    "Read report Markdown and confirm it is useful for daily operator review.",
+    "Spot-check runbooks during operator rehearsal.",
+    "Phase 2 appears ready for longer unattended paper testing, subject to operator review of artifacts."
+  ],
+  "output_dir": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463",
+  "passed": true,
+  "run_id": "phase2_validation_20260511T082221Z_f2d1e463",
+  "scenarios": [
+    {
+      "artifacts": {
+        "report_json": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/reports/paper_report_2026-05-11.json",
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/happy_path_daily_cycle.json"
+      },
+      "checks": {
+        "critical_alert_count": 0,
+        "filled_orders": 2,
+        "report_has_open_position": true
+      },
+      "name": "happy_path_daily_cycle",
+      "passed": true,
+      "recommended_review": [
+        "Review generated daily report for clear position and order summary."
+      ]
+    },
+    {
+      "artifacts": {
+        "alerts": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/alerts.jsonl",
+        "approval_queue": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/state/strategy_approvals.json",
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/approval_required_candidate.json"
+      },
+      "checks": {
+        "awaiting_approval_alert_count": 1,
+        "pending_request_created": true,
+        "strategy_not_active_without_approval": true
+      },
+      "name": "approval_required_candidate",
+      "passed": true,
+      "recommended_review": [
+        "Use review_strategy_promotions.py --list against real state during operations."
+      ]
+    },
+    {
+      "artifacts": {
+        "alerts": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/alerts.jsonl",
+        "audit_log": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/audit_log.jsonl",
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/repeated_order_rejections.json"
+      },
+      "checks": {
+        "cooldown_suppressed_duplicates": true,
+        "rejected_trade_audit_count": 3,
+        "repeated_rejection_alert_count": 1
+      },
+      "name": "repeated_order_rejections",
+      "passed": true,
+      "recommended_review": [
+        "Confirm one CRITICAL alert is enough to prompt operator review without alert spam."
+      ]
+    },
+    {
+      "artifacts": {
+        "alerts": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/alerts.jsonl",
+        "audit_log": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/audit_log.jsonl",
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/drawdown_breach.json"
+      },
+      "checks": {
+        "drawdown_alert_count": 1,
+        "strategy_rejected_audit_count": 1
+      },
+      "name": "drawdown_breach",
+      "passed": true,
+      "recommended_review": [
+        "Review whether drawdown breach wording gives enough context for rejection."
+      ]
+    },
+    {
+      "artifacts": {
+        "alerts": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/alerts.jsonl",
+        "audit_log": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/audit_log.jsonl",
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/paper_cycle_failure.json"
+      },
+      "checks": {
+        "failure_alert_count": 1,
+        "failure_audit_count": 1
+      },
+      "name": "paper_cycle_failure",
+      "passed": true,
+      "recommended_review": [
+        "Operator should inspect synthetic failure trail as incident-review rehearsal."
+      ]
+    },
+    {
+      "artifacts": {
+        "alerts": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/alerts.jsonl",
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/kill_switch_activation.json",
+        "system_state": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/state/system_state.json"
+      },
+      "checks": {
+        "audit_count": 1,
+        "critical_alert_count": 1,
+        "kill_switch_enabled": true
+      },
+      "name": "kill_switch_activation",
+      "passed": true,
+      "recommended_review": [
+        "Review kill-switch reason and confirm no-op expectation is clear."
+      ]
+    },
+    {
+      "artifacts": {
+        "audit_log": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/experiments/audit_log.jsonl",
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/kill_switch_persistence.json",
+        "system_state": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/state/system_state.json"
+      },
+      "checks": {
+        "future_cycle_noop_recorded": true,
+        "kill_switch_enabled_after_restart": true
+      },
+      "name": "kill_switch_persistence",
+      "passed": true,
+      "recommended_review": [
+        "Confirm real operators know kill switch persists until explicitly cleared."
+      ]
+    },
+    {
+      "artifacts": {
+        "report_json": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/reports/paper_report_2026-05-11.json",
+        "report_md": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/reports/paper_report_2026-05-11.md",
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/daily_report_generation.json"
+      },
+      "checks": {
+        "json_report_exists": true,
+        "markdown_report_exists": true,
+        "open_position_count": 1,
+        "report_alert_count": 6,
+        "report_risk_event_count": 6
+      },
+      "name": "daily_report_generation",
+      "passed": true,
+      "recommended_review": [
+        "Read report Markdown and confirm it is useful for daily operator review."
+      ]
+    },
+    {
+      "artifacts": {
+        "scenario": "multi_agent_trading_lab/validation_runs/phase2_validation_20260511T082221Z_f2d1e463/scenarios/runbook_integrity_check.json"
+      },
+      "checks": {
+        "incomplete_files": {},
+        "missing_files": [],
+        "runbooks_dir": "docs/runbooks"
+      },
+      "name": "runbook_integrity_check",
+      "passed": true,
+      "recommended_review": [
+        "Spot-check runbooks during operator rehearsal."
+      ]
+    }
+  ]
+}

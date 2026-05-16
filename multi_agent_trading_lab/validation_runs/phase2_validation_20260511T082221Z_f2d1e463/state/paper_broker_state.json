@@ -1,0 +1,23 @@
+{
+  "cash": 98500.0,
+  "equity": 100500.0,
+  "orders": {
+    "o1": {
+      "source_strategy": "validation_report_s1",
+      "status": "filled",
+      "symbol": "NVDA"
+    },
+    "o2": {
+      "source_strategy": "validation_report_s1",
+      "status": "rejected",
+      "symbol": "NVDA"
+    }
+  },
+  "positions": {
+    "NVDA": {
+      "average_price": 400.0,
+      "market_price": 500.0,
+      "quantity": 4
+    }
+  }
+}

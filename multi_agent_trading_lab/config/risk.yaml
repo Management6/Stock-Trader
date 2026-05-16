@@ -1,0 +1,20 @@
+kill_switch_enabled: false
+min_backtest_return: -0.05
+max_drawdown_threshold: -0.20
+research:
+  max_drawdown: -0.20
+paper:
+  max_drawdown: -0.20
+max_position_size: 25
+max_capital_per_trade: 2500.0
+max_open_positions: 3
+daily_loss_limit: 1000.0
+allowed_symbols:
+  - AAPL
+  - MSFT
+  - SPY
+blocked_symbols: []
+trading_hours_start: "09:30"
+trading_hours_end: "16:00"
+enforce_trading_hours: false
+repeated_failure_limit: 3

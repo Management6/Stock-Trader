@@ -9,6 +9,9 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any, Callable
 
+from multi_agent_trading_lab.operations.paper_attribution import build_paper_attribution, expected_metrics_from_audit
+from multi_agent_trading_lab.operations.strategy_health import DEFAULT_STRATEGY_HEALTH_CONFIG, evaluate_strategy_health
+
 
 @dataclass(frozen=True)
 class DailyPaperReport:
@@ -24,6 +27,8 @@ class DailyPaperReport:
     strategy_summary: dict[str, dict[str, Any]]
     risk_events: list[dict[str, Any]]
     alerts: list[dict[str, Any]]
+    paper_attribution: dict[str, Any]
+    strategy_health: dict[str, Any]
     notable_changes: list[str]
     text_report: str
 
@@ -41,12 +46,14 @@ class DailyPaperReportService:
         alerts_path: str | Path = "multi_agent_trading_lab/experiments/alerts.jsonl",
         reports_dir: str | Path = "multi_agent_trading_lab/reports",
         clock: Callable[[], datetime] | None = None,
+        strategy_health_config: dict[str, Any] | None = None,
     ) -> None:
         self.paper_state_path = Path(paper_state_path)
         self.audit_log_path = Path(audit_log_path)
         self.alerts_path = Path(alerts_path)
         self.reports_dir = Path(reports_dir)
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.strategy_health_config = {**DEFAULT_STRATEGY_HEALTH_CONFIG, **(strategy_health_config or {})}
 
     def generate(self, report_date: date | None = None) -> DailyPaperReport:
         now = self.clock()
@@ -70,6 +77,17 @@ class DailyPaperReportService:
             for record in self._records_in_window(audit_records, window_start, window_end)
             if record.get("event_type") in {"risk_rejected", "rejected_trade", "kill_switch_activated", "live_guard_rejected"}
         ]
+        attribution = build_paper_attribution(
+            orders,
+            audit_records,
+            expected_metrics_by_strategy=expected_metrics_from_audit(audit_records),
+            starting_equity=starting_equity,
+            ending_equity=ending_equity,
+        )
+        strategy_health = evaluate_strategy_health(attribution, self.strategy_health_config, clock=self.clock)
+        if bool(self.strategy_health_config.get("enabled", False)):
+            for decision in strategy_health["decisions"].values():
+                self._append_audit_record("strategy_health_decision", decision)
         notable_changes = _notable_changes(previous, ending_equity, len(alerts), len(risk_events))
         text_report = _render_text_report(
             current_date.isoformat(),
@@ -80,6 +98,8 @@ class DailyPaperReportService:
             dict(order_counts),
             risk_events,
             alerts,
+            attribution,
+            strategy_health,
             notable_changes,
         )
         report = DailyPaperReport(
@@ -95,6 +115,8 @@ class DailyPaperReportService:
             strategy_summary=strategy_summary,
             risk_events=risk_events,
             alerts=alerts,
+            paper_attribution=attribution,
+            strategy_health=strategy_health,
             notable_changes=notable_changes,
             text_report=text_report,
         )
@@ -106,6 +128,12 @@ class DailyPaperReportService:
         stem = f"paper_report_{report.date}"
         (self.reports_dir / f"{stem}.json").write_text(json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         (self.reports_dir / f"{stem}.md").write_text(report.text_report + "\n", encoding="utf-8")
+
+    def _append_audit_record(self, event_type: str, payload: dict[str, Any]) -> None:
+        self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {"event_type": event_type, "payload": payload, "timestamp": self.clock().isoformat()}
+        with self.audit_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
 
     def _previous_report(self, current_date: date) -> dict[str, Any]:
         if not self.reports_dir.exists():
@@ -188,6 +216,8 @@ def _render_text_report(
     order_counts: dict[str, int],
     risk_events: list[dict[str, Any]],
     alerts: list[dict[str, Any]],
+    paper_attribution: dict[str, Any],
+    strategy_health: dict[str, Any],
     notable_changes: list[str],
 ) -> str:
     lines = [
@@ -200,6 +230,16 @@ def _render_text_report(
         f"Orders by status: {order_counts or {}}",
         f"Risk events: {len(risk_events)}",
         f"Alerts: {len(alerts)}",
+        "",
+        "Paper attribution:",
+        f"- Total paper PnL: {_money(paper_attribution.get('summary', {}).get('total_pnl'))}",
+        f"- Signals: {paper_attribution.get('summary', {}).get('signals', 0)}",
+        f"- Accepted orders: {paper_attribution.get('summary', {}).get('accepted_orders', 0)}",
+        f"- Rejected/skipped orders: {paper_attribution.get('summary', {}).get('rejected_or_skipped_orders', 0)}",
+        "",
+        "Strategy health:",
+        f"- Enabled: {strategy_health.get('enabled', False)}",
+        f"- Decisions: {len(strategy_health.get('decisions', {}))}",
         "",
         "Notable changes:",
     ]

@@ -9,6 +9,7 @@ from typing import Any
 
 from multi_agent_trading_lab.agents.base_agent import AgentResult, BaseAgent
 from multi_agent_trading_lab.experiments.experiment_logger import ExperimentLogger, ExperimentRecord
+from multi_agent_trading_lab.research.optimizer import propose_candidates
 from multi_agent_trading_lab.research.scoring import DEFAULT_OBJECTIVE_CONFIG, score_metrics
 from multi_agent_trading_lab.risk.risk_policy import RiskPolicy
 from multi_agent_trading_lab.strategies.base_strategy import canonical_strategy_id
@@ -115,6 +116,12 @@ class StrategyAgent(BaseAgent):
         4. Perturb the top parameter sets within configured bounds.
         5. Drop duplicates already present in experiment history.
         """
+
+        optimizer_config = dict(self.search_config.get("optimizer", {}))
+        if bool(optimizer_config.get("enabled", False)):
+            trials = int(optimizer_config.get("n_trials", n_variants))
+            seed = int(optimizer_config.get("seed", 42))
+            return propose_candidates(base_strategy_name, self._bounds_for(base_strategy_name), min(n_variants, trials), seed=seed)
 
         experiments = self.experiment_logger.load_experiments_for_strategy(base_strategy_name, limit=100)
         usable = [record for record in experiments if self._has_usable_metrics(record)]

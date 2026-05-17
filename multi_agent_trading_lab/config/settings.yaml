@@ -170,6 +170,20 @@ regime:
     - bullish
     - trending
   block_on_insufficient_data: true
+strategy_health:
+  enabled: false
+  quarantine_on_expectation_mismatch: true
+  max_rejection_rate: 0.50
+  repeated_rejection_threshold: 3
+  max_paper_drawdown: -0.10
+  min_signals_before_quarantine: 5
+  allow_manual_reactivation: true
+optimizer:
+  enabled: false
+  method: deterministic_random
+  seed: 42
+  n_trials: 25
+  objective: risk_adjusted_return
 strategy_search:
   focus_on_risk_passing_pct: 0.70
   explore_risky_pct: 0.20

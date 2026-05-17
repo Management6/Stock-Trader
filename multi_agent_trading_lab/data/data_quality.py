@@ -55,12 +55,34 @@ def validate_market_data(
     as_of_date: str | None = None,
     max_staleness_days: int | None = None,
     max_gap_days: int | None = None,
+    block_on_missing_columns: bool = True,
+    block_on_duplicate_dates: bool = True,
+    block_on_invalid_prices: bool = True,
+    block_on_stale_data: bool = False,
+    block_on_large_gaps: bool = False,
+    block_on_zero_volume: bool = False,
+    expect_volume: bool = True,
 ) -> DataQualityReport:
     """Validate internal bar data and return structured issues."""
 
     issues: list[DataQualityIssue] = []
     for symbol, bars in data.items():
-        issues.extend(_validate_symbol(symbol, bars, as_of_date, max_staleness_days, max_gap_days))
+        issues.extend(
+            _validate_symbol(
+                symbol,
+                bars,
+                as_of_date,
+                max_staleness_days,
+                max_gap_days,
+                block_on_missing_columns,
+                block_on_duplicate_dates,
+                block_on_invalid_prices,
+                block_on_stale_data,
+                block_on_large_gaps,
+                block_on_zero_volume,
+                expect_volume,
+            )
+        )
     return DataQualityReport(passed=not any(issue.severity == "error" for issue in issues), issues=issues)
 
 
@@ -70,6 +92,13 @@ def _validate_symbol(
     as_of_date: str | None,
     max_staleness_days: int | None,
     max_gap_days: int | None,
+    block_on_missing_columns: bool,
+    block_on_duplicate_dates: bool,
+    block_on_invalid_prices: bool,
+    block_on_stale_data: bool,
+    block_on_large_gaps: bool,
+    block_on_zero_volume: bool,
+    expect_volume: bool,
 ) -> list[DataQualityIssue]:
     issues: list[DataQualityIssue] = []
     if not bars:
@@ -83,12 +112,13 @@ def _validate_symbol(
             )
         ]
 
-    missing = sorted({column for bar in bars for column in REQUIRED_COLUMNS if column not in bar})
+    required_columns = REQUIRED_COLUMNS if expect_volume else tuple(column for column in REQUIRED_COLUMNS if column != "volume")
+    missing = sorted({column for bar in bars for column in required_columns if column not in bar})
     if missing:
         issues.append(
             DataQualityIssue(
                 "missing_columns",
-                "error",
+                _severity(block_on_missing_columns),
                 symbol,
                 f"{symbol} is missing required OHLCV columns.",
                 {"missing_columns": missing},
@@ -101,7 +131,7 @@ def _validate_symbol(
         issues.append(
             DataQualityIssue(
                 "duplicate_dates",
-                "error",
+                _severity(block_on_duplicate_dates),
                 symbol,
                 f"{symbol} has duplicate market-data dates.",
                 {"dates": duplicate_dates},
@@ -117,23 +147,19 @@ def _validate_symbol(
         issues.append(
             DataQualityIssue(
                 "invalid_prices",
-                "error",
+                _severity(block_on_invalid_prices),
                 symbol,
                 f"{symbol} has non-positive price values.",
                 {"rows": invalid_price_rows},
             )
         )
 
-    zero_volume_rows = [
-        index
-        for index, bar in enumerate(bars)
-        if "volume" in bar and _number_or_none(bar.get("volume")) == 0.0
-    ]
-    if zero_volume_rows:
+    zero_volume_rows = [index for index, bar in enumerate(bars) if "volume" in bar and _number_or_none(bar.get("volume")) == 0.0]
+    if expect_volume and zero_volume_rows:
         issues.append(
             DataQualityIssue(
                 "zero_volume",
-                "warning",
+                _severity(block_on_zero_volume),
                 symbol,
                 f"{symbol} has zero-volume bars.",
                 {"rows": zero_volume_rows},
@@ -148,7 +174,7 @@ def _validate_symbol(
             issues.append(
                 DataQualityIssue(
                     "stale_data",
-                    "warning",
+                    _severity(block_on_stale_data),
                     symbol,
                     f"{symbol} latest bar is stale.",
                     {"latest_date": latest_date.isoformat(), "as_of_date": as_of_date, "staleness_days": staleness_days},
@@ -165,7 +191,7 @@ def _validate_symbol(
             issues.append(
                 DataQualityIssue(
                     "large_gap",
-                    "warning",
+                    _severity(block_on_large_gaps),
                     symbol,
                     f"{symbol} has large date gaps.",
                     {"gaps": gaps},
@@ -189,3 +215,7 @@ def _number_or_none(value: Any) -> float | None:
 
 def _parse_date(value: str) -> date:
     return date.fromisoformat(str(value)[:10])
+
+
+def _severity(block: bool) -> str:
+    return "error" if block else "warning"

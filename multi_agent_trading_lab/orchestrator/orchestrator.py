@@ -16,14 +16,18 @@ from multi_agent_trading_lab.agents.strategy_agent import StrategyAgent
 from multi_agent_trading_lab.brokers.alpaca_broker import AlpacaBroker
 from multi_agent_trading_lab.brokers.base_broker import BaseBroker
 from multi_agent_trading_lab.brokers.paper_broker import PaperBroker
+from multi_agent_trading_lab.config.validation import normalize_trading_config
+from multi_agent_trading_lab.data.universes import resolve_universe_symbols
 from multi_agent_trading_lab.execution.execution_engine import ExecutionEngine
 from multi_agent_trading_lab.execution.order_models import OrderRequest
 from multi_agent_trading_lab.experiments.audit_log import AuditLog
 from multi_agent_trading_lab.experiments.experiment_logger import ExperimentLogger
-from multi_agent_trading_lab.data.universes import resolve_universe_symbols
 from multi_agent_trading_lab.operations.alerting import AlertManager, AlertSeverity, FileAlertSink
 from multi_agent_trading_lab.operations.approvals import ApprovalQueue
+from multi_agent_trading_lab.research.portfolio_backtest import run_portfolio_backtest
+from multi_agent_trading_lab.research.regime import classify_market_regime
 from multi_agent_trading_lab.research.scoring import score_metrics
+from multi_agent_trading_lab.research.walk_forward import run_walk_forward_validation
 from multi_agent_trading_lab.risk.risk_policy import RiskPolicy
 from multi_agent_trading_lab.state.system_state import SystemStateStore
 from multi_agent_trading_lab.strategies.example_strategy import MovingAverageCrossoverStrategy
@@ -38,6 +42,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "operating_mode": "paper",
     "data": {
         "provider": "yfinance",
+        "default_universe": None,
         "symbols": ["WES.AX", "YAL.AX", "SLX.AX", "NVDA"],
         "timeframe": "1d",
         "start_date": "2010-01-01",
@@ -45,9 +50,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "cache_dir": "data/cache",
         "force_refresh": False,
     },
-    "symbols": ["AAPL"],
-    "start_date": "2023-01-01",
-    "end_date": "2023-06-30",
     "strategy": {"name": "moving_average_crossover", "version": "0.1.0", "short_window": 5, "long_window": 20},
     "strategy_families": ["moving_average_crossover"],
     "strategies": {
@@ -73,6 +75,43 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         }
     },
     "research": {"variants_per_cycle": 5, "max_experiments_per_run": 5},
+    "oos_validation": {
+        "enabled": True,
+        "split_ratio": 0.70,
+        "min_sharpe": 0.0,
+        "max_drawdown": -0.20,
+        "min_return": -0.05,
+    },
+    "data_quality": {
+        "block_on_missing_columns": True,
+        "block_on_duplicate_dates": True,
+        "block_on_invalid_prices": True,
+        "block_on_stale_data": False,
+        "block_on_large_gaps": False,
+        "block_on_zero_volume": False,
+        "expect_volume": True,
+        "max_gap_days": None,
+        "max_staleness_days": None,
+    },
+    "portfolio": {
+        "enabled": False,
+        "allocation_method": "equal_weight",
+        "max_symbols": None,
+        "min_valid_symbols": 3,
+        "min_total_return": -0.02,
+        "max_drawdown": -0.25,
+        "min_sharpe": 0.0,
+        "max_skipped_symbol_ratio": 0.50,
+    },
+    "regime": {
+        "enabled": False,
+        "benchmark_symbol": "SPY",
+        "lookback_days": 120,
+        "trend_ma_days": 50,
+        "max_volatility": 0.30,
+        "allowed_regimes": ["bullish", "trending"],
+        "block_on_insufficient_data": True,
+    },
     "strategy_search": {
         "focus_on_risk_passing_pct": 0.70,
         "explore_risky_pct": 0.20,
@@ -99,7 +138,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_capital_per_trade_pct": 0.10,
         "allow_leverage": False,
         "commission_per_trade": 0.0,
-        "slippage_pct": 0.0,
+        "slippage_pct": 0.0005,
     },
     "risk": {
         "kill_switch_enabled": False,
@@ -110,7 +149,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_position_size": 25,
         "max_capital_per_trade": 2_500.0,
         "max_open_positions": 3,
-        "allowed_symbols": ["WES.AX", "YAL.AX", "SLX.AX", "NVDA"],
+        "allowed_symbols": [],
         "blocked_symbols": [],
     },
     "broker": {
@@ -140,7 +179,8 @@ class WorkflowResult:
 
 class TradingLabOrchestrator:
     def __init__(self, settings: dict[str, Any] | None = None) -> None:
-        self.settings = _deep_merge(DEFAULT_SETTINGS, settings or {})
+        merged_settings = _deep_merge(DEFAULT_SETTINGS, settings or {})
+        self.settings, self.config_validation = normalize_trading_config(merged_settings)
         self.discovery_agent = DiscoveryAgent()
         self.data_agent = DataAgent(self.settings)
         backtest_settings = self.settings.get("backtest", {})
@@ -170,6 +210,10 @@ class TradingLabOrchestrator:
             strategy_version=str(self.settings.get("strategy", {}).get("version", "0.1.0")),
         )
         self.audit_log = AuditLog(self.settings.get("audit_log_path"))
+        if self.config_validation.warnings:
+            self.audit_log.record("config_validation_warning", {"warnings": self.config_validation.warnings})
+        if self.config_validation.errors:
+            self.audit_log.record("config_validation_error", {"errors": self.config_validation.errors})
         self.alert_manager = AlertManager([FileAlertSink(self.settings.get("alert_log_path", "multi_agent_trading_lab/experiments/alerts.jsonl"))])
         self.strategy_registry = StrategyRegistry(self.settings.get("strategy_registry_path"))
         self.approval_queue = ApprovalQueue(
@@ -222,15 +266,90 @@ class TradingLabOrchestrator:
             requested_variants = min(requested_variants, max(1, max_experiments // max(1, len(families))))
             variants.extend(self._strategy_agent_for(family).suggest_from_history(family, requested_variants))
         windows = self._feature_windows_from_variants(variants)
-        raw_data = self.data_agent.fetch_data(symbols, start_date, None if end_date in {None, "null", ""} else str(end_date))
+        try:
+            raw_data = self.data_agent.fetch_data(symbols, start_date, None if end_date in {None, "null", ""} else str(end_date))
+        except ValueError as exc:
+            data_quality = self._data_quality_payload()
+            self.audit_log.record("research_data_quality_blocked", {"reason": str(exc), "data_quality": data_quality})
+            return WorkflowResult(
+                stage="research",
+                summaries=[f"Research blocked by data quality gate: {exc}"],
+                details={
+                    "profile": profile,
+                    "records": [],
+                    "active_strategies": self.strategy_registry.list_by_stage("active"),
+                    "objective": self.settings.get("research_objective", {}),
+                    "data_quality": data_quality,
+                },
+            )
+        data_quality = self._data_quality_payload()
         featured_data = self.data_agent.build_features(raw_data, windows)
 
         summaries: list[str] = []
         records: list[dict[str, Any]] = []
         for variant in variants:
             self.strategy_registry.register(variant, stage="candidate", reason="Generated by StrategyAgent.")
-            backtest = self.backtest_agent.run_backtest(variant, featured_data)
+            backtest = self.backtest_agent.run_backtest(variant, featured_data, data_quality_report=data_quality)
             risk_decision = self.risk_agent.assess_risk(backtest["metrics"])
+            cost_assumptions = dict(backtest.get("cost_assumptions", {}))
+            risk_decision.setdefault("details", {})
+            if isinstance(risk_decision["details"], dict):
+                risk_decision["details"]["cost_assumptions"] = cost_assumptions
+                risk_decision["details"]["data_quality"] = data_quality
+            data_quality_decision = self._evaluate_data_quality_gate(data_quality)
+            if not data_quality_decision["approved"]:
+                risk_decision = data_quality_decision
+            walk_forward: dict[str, Any] | None = None
+            promotion_metrics: dict[str, Any] = dict(backtest["metrics"])
+            promotion_metrics["cost_assumptions"] = cost_assumptions
+            promotion_metrics["data_quality"] = data_quality
+            if risk_decision["approved"]:
+                walk_forward = self._run_walk_forward_validation(variant, featured_data, data_quality)
+                if walk_forward is not None:
+                    promotion_metrics["walk_forward"] = walk_forward
+                    oos_decision = self._evaluate_oos_gate(walk_forward)
+                    if not oos_decision["approved"]:
+                        risk_decision = oos_decision
+                    else:
+                        risk_decision = {
+                            "approved": True,
+                            "reason": "Strategy passes research risk policy and OOS validation.",
+                            "details": {"walk_forward": walk_forward, "cost_assumptions": cost_assumptions},
+                        }
+            portfolio_backtest: dict[str, Any] | None = None
+            if risk_decision["approved"]:
+                portfolio_backtest = self._run_portfolio_backtest(variant, featured_data, data_quality)
+                if portfolio_backtest is not None:
+                    promotion_metrics["portfolio_backtest"] = portfolio_backtest
+                    portfolio_decision = self._evaluate_portfolio_gate(portfolio_backtest)
+                    if not portfolio_decision["approved"]:
+                        risk_decision = portfolio_decision
+                    else:
+                        risk_decision = {
+                            "approved": True,
+                            "reason": f"{risk_decision['reason']} Portfolio gate passed.",
+                            "details": {
+                                **dict(risk_decision.get("details", {})),
+                                "portfolio_backtest": portfolio_backtest,
+                            },
+                        }
+            market_regime: dict[str, Any] | None = None
+            if risk_decision["approved"]:
+                market_regime = self._run_regime_analysis(featured_data)
+                if market_regime is not None:
+                    promotion_metrics["market_regime"] = market_regime
+                    regime_decision = self._evaluate_regime_gate(market_regime)
+                    if not regime_decision["approved"]:
+                        risk_decision = regime_decision
+                    else:
+                        risk_decision = {
+                            "approved": True,
+                            "reason": f"{risk_decision['reason']} Regime gate passed.",
+                            "details": {
+                                **dict(risk_decision.get("details", {})),
+                                **dict(regime_decision.get("details", {})),
+                            },
+                        }
             stage = "paper" if risk_decision["approved"] else "rejected"
             record = self.logger.log_experiment(
                 config={
@@ -247,17 +366,38 @@ class TradingLabOrchestrator:
                 mode="backtest",
             )
             record["objective_score"] = score_metrics(record["metrics"], self.settings.get("research_objective", {}))
+            if walk_forward is not None:
+                record["walk_forward"] = walk_forward
+            if portfolio_backtest is not None:
+                record["portfolio_backtest"] = portfolio_backtest
+            if market_regime is not None:
+                record["market_regime"] = market_regime
+            record["cost_assumptions"] = cost_assumptions
+            record["data_quality"] = data_quality
+            record["metrics"]["data_quality"] = data_quality
             records.append(record)
             if risk_decision["approved"]:
                 self.approval_queue.request_promotion(
                     strategy=variant,
-                    rationale="Strategy passed research risk policy and is eligible for paper review.",
-                    metrics=backtest["metrics"],
+                    rationale="Strategy passed research risk policy and OOS validation and is eligible for paper review.",
+                    metrics=promotion_metrics,
                     requester="run_research_cycle",
                 )
             else:
                 self.strategy_registry.promote(variant["id"], "rejected", str(risk_decision["reason"]))
-                self.audit_log.record("strategy_rejected", {"strategy": variant, "reason": risk_decision["reason"]})
+                self.audit_log.record(
+                    "strategy_rejected",
+                    {
+                        "strategy": variant,
+                        "reason": risk_decision["reason"],
+                        "metrics": backtest["metrics"],
+                        "cost_assumptions": cost_assumptions,
+                        "data_quality": data_quality,
+                        "walk_forward": walk_forward,
+                        "portfolio_backtest": portfolio_backtest,
+                        "market_regime": market_regime,
+                    },
+                )
                 if "drawdown" in str(risk_decision["reason"]).lower():
                     self.alert_manager.emit(
                         "drawdown_threshold_breach",
@@ -276,6 +416,7 @@ class TradingLabOrchestrator:
                 "active_strategies": self.strategy_registry.list_by_stage("active"),
                 "objective": self.settings.get("research_objective", {}),
                 "data": _market_data_summary(raw_data, start_date, end_date, self.data_agent.last_load_source),
+                "data_quality": data_quality,
             },
         )
 
@@ -494,6 +635,194 @@ class TradingLabOrchestrator:
             strategy_version=str(self.settings.get("strategy", {}).get("version", "0.1.0")),
         )
 
+    def _run_walk_forward_validation(
+        self,
+        strategy_config: dict[str, Any],
+        featured_data: dict[str, list[dict[str, Any]]],
+        data_quality: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        oos_config = dict(self.settings.get("oos_validation", {}))
+        if not bool(oos_config.get("enabled", True)):
+            return None
+        ranges = self._walk_forward_ranges(featured_data, float(oos_config.get("split_ratio", 0.70)))
+        if ranges is None:
+            return None
+        return run_walk_forward_validation(
+            strategy_config,
+            featured_data,
+            in_sample=ranges["in_sample"],
+            out_of_sample=ranges["out_of_sample"],
+            backtest_agent=self.backtest_agent,
+            data_quality_report=data_quality,
+        )
+
+    def _run_portfolio_backtest(
+        self,
+        strategy_config: dict[str, Any],
+        featured_data: dict[str, list[dict[str, Any]]],
+        data_quality: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        portfolio_config = dict(self.settings.get("portfolio", {}))
+        if not bool(portfolio_config.get("enabled", False)):
+            return None
+        max_symbols = portfolio_config.get("max_symbols")
+        return run_portfolio_backtest(
+            strategy_config,
+            featured_data,
+            backtest_agent=self.backtest_agent,
+            data_quality_report=data_quality,
+            allocation_method=str(portfolio_config.get("allocation_method", "equal_weight")),
+            max_symbols=None if max_symbols in {None, "null", ""} else int(max_symbols),
+        )
+
+    def _run_regime_analysis(self, featured_data: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
+        regime_config = dict(self.settings.get("regime", {}))
+        if not bool(regime_config.get("enabled", False)):
+            return None
+        benchmark_symbol = str(regime_config.get("benchmark_symbol", "SPY"))
+        return classify_market_regime(
+            featured_data.get(benchmark_symbol, []),
+            benchmark_symbol=benchmark_symbol,
+            lookback_days=int(regime_config.get("lookback_days", 120)),
+            trend_ma_days=int(regime_config.get("trend_ma_days", 50)),
+            max_volatility=float(regime_config.get("max_volatility", 0.30)),
+        )
+
+    def _data_quality_payload(self) -> dict[str, Any]:
+        if self.data_agent.last_data_quality is None:
+            return {"passed": True, "issues": []}
+        return self.data_agent.last_data_quality.to_dict()
+
+    @staticmethod
+    def _evaluate_data_quality_gate(data_quality: dict[str, Any]) -> dict[str, Any]:
+        errors = [issue for issue in data_quality.get("issues", []) if issue.get("severity") == "error"]
+        if not errors:
+            return {"approved": True, "reason": "Data quality gate passed.", "details": {"data_quality": data_quality}}
+        codes = sorted({str(issue.get("code")) for issue in errors})
+        return {
+            "approved": False,
+            "reason": f"Data quality gate failed: {', '.join(codes)}.",
+            "details": {"data_quality": data_quality, "failed_data_quality_codes": codes},
+        }
+
+    def _evaluate_portfolio_gate(self, portfolio_backtest: dict[str, Any]) -> dict[str, Any]:
+        config = dict(self.settings.get("portfolio", {}))
+        metrics = dict(portfolio_backtest.get("metrics", {}))
+        symbols = list(portfolio_backtest.get("symbols", []))
+        skipped = list(portfolio_backtest.get("skipped_symbols", []))
+        thresholds = {
+            "min_valid_symbols": int(config.get("min_valid_symbols", 3)),
+            "min_total_return": float(config.get("min_total_return", -0.02)),
+            "max_drawdown": float(config.get("max_drawdown", -0.25)),
+            "min_sharpe": float(config.get("min_sharpe", 0.0)),
+            "max_skipped_symbol_ratio": float(config.get("max_skipped_symbol_ratio", 0.50)),
+        }
+        details = {"portfolio_backtest": portfolio_backtest, "thresholds": thresholds}
+        valid_count = len(symbols)
+        if valid_count < thresholds["min_valid_symbols"]:
+            return {
+                "approved": False,
+                "reason": f"Portfolio gate failed: valid symbols {valid_count} is below threshold {thresholds['min_valid_symbols']}.",
+                "details": {**details, "failed_threshold": "min_valid_symbols"},
+            }
+        considered_count = valid_count + len(skipped)
+        skipped_ratio = len(skipped) / considered_count if considered_count else 0.0
+        if skipped_ratio > thresholds["max_skipped_symbol_ratio"]:
+            return {
+                "approved": False,
+                "reason": f"Portfolio gate failed: skipped symbol ratio {skipped_ratio:.2f} exceeds threshold {thresholds['max_skipped_symbol_ratio']:.2f}.",
+                "details": {**details, "failed_threshold": "max_skipped_symbol_ratio"},
+            }
+        total_return = _metric(metrics, "total_return")
+        if total_return is None or total_return < thresholds["min_total_return"]:
+            return {
+                "approved": False,
+                "reason": f"Portfolio gate failed: total_return {total_return} is below threshold {thresholds['min_total_return']}.",
+                "details": {**details, "failed_threshold": "min_total_return"},
+            }
+        max_drawdown = _metric(metrics, "max_drawdown")
+        if max_drawdown is None or max_drawdown < thresholds["max_drawdown"]:
+            return {
+                "approved": False,
+                "reason": f"Portfolio gate failed: max_drawdown {max_drawdown} is below threshold {thresholds['max_drawdown']}.",
+                "details": {**details, "failed_threshold": "max_drawdown"},
+            }
+        sharpe = _metric(metrics, "sharpe_ratio", "sharpe")
+        if sharpe is None or sharpe < thresholds["min_sharpe"]:
+            return {
+                "approved": False,
+                "reason": f"Portfolio gate failed: sharpe {sharpe} is below threshold {thresholds['min_sharpe']}.",
+                "details": {**details, "failed_threshold": "min_sharpe"},
+            }
+        return {"approved": True, "reason": "Portfolio gate passed.", "details": details}
+
+    def _evaluate_regime_gate(self, market_regime: dict[str, Any]) -> dict[str, Any]:
+        config = dict(self.settings.get("regime", {}))
+        regime = str(market_regime.get("regime", "insufficient_data"))
+        details = {"market_regime": market_regime, "allowed_regimes": list(config.get("allowed_regimes", ["bullish", "trending"]))}
+        if regime == "insufficient_data":
+            if bool(config.get("block_on_insufficient_data", True)):
+                return {
+                    "approved": False,
+                    "reason": "Regime gate failed: insufficient benchmark data.",
+                    "details": {**details, "failed_threshold": "insufficient_data"},
+                }
+            return {
+                "approved": True,
+                "reason": "Regime gate warning: insufficient benchmark data.",
+                "details": {**details, "market_regime_warning": "insufficient_data"},
+            }
+        allowed = {str(value) for value in config.get("allowed_regimes", ["bullish", "trending"])}
+        if regime not in allowed:
+            return {
+                "approved": False,
+                "reason": f"Regime gate failed: {regime} is not allowed.",
+                "details": {**details, "failed_threshold": "allowed_regimes"},
+            }
+        return {"approved": True, "reason": "Regime gate passed.", "details": details}
+
+    def _evaluate_oos_gate(self, walk_forward: dict[str, Any]) -> dict[str, Any]:
+        config = dict(self.settings.get("oos_validation", {}))
+        metrics = dict(walk_forward.get("out_of_sample", {}).get("metrics", {}))
+        sharpe = _metric(metrics, "sharpe_ratio", "sharpe")
+        max_drawdown = _metric(metrics, "max_drawdown")
+        total_return = _metric(metrics, "total_return")
+        min_sharpe = float(config.get("min_sharpe", 0.0))
+        max_drawdown_threshold = float(config.get("max_drawdown", -0.20))
+        min_return = float(config.get("min_return", -0.05))
+        details = {"walk_forward": walk_forward, "thresholds": {"min_sharpe": min_sharpe, "max_drawdown": max_drawdown_threshold, "min_return": min_return}}
+        if sharpe is None or sharpe < min_sharpe:
+            return {
+                "approved": False,
+                "reason": f"OOS sharpe {sharpe} is below threshold {min_sharpe}.",
+                "details": {**details, "failed_threshold": "min_sharpe"},
+            }
+        if max_drawdown is None or max_drawdown < max_drawdown_threshold:
+            return {
+                "approved": False,
+                "reason": f"OOS max drawdown {max_drawdown} exceeds threshold {max_drawdown_threshold}.",
+                "details": {**details, "failed_threshold": "max_drawdown"},
+            }
+        if total_return is None or total_return < min_return:
+            return {
+                "approved": False,
+                "reason": f"OOS return {total_return} is below threshold {min_return}.",
+                "details": {**details, "failed_threshold": "min_return"},
+            }
+        return {"approved": True, "reason": "OOS validation passed.", "details": details}
+
+    @staticmethod
+    def _walk_forward_ranges(featured_data: dict[str, list[dict[str, Any]]], split_ratio: float) -> dict[str, tuple[str, str]] | None:
+        dates = sorted({str(bar.get("date", "")) for bars in featured_data.values() for bar in bars if bar.get("date")})
+        if len(dates) < 4:
+            return None
+        split_index = int(len(dates) * split_ratio)
+        split_index = max(2, min(len(dates) - 2, split_index))
+        return {
+            "in_sample": (dates[0], dates[split_index - 1]),
+            "out_of_sample": (dates[split_index], dates[-1]),
+        }
+
     @staticmethod
     def _feature_windows_from_variants(variants: list[dict[str, Any]]) -> list[int]:
         windows: set[int] = set()
@@ -560,6 +889,14 @@ def _market_data_summary(
         "source": source,
         "ranges": ranges,
     }
+
+
+def _metric(metrics: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = metrics.get(key)
+        if value is not None:
+            return float(value)
+    return None
 
 
 def _parse_simple_yaml(path: Path) -> dict[str, Any]:

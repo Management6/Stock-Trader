@@ -16,12 +16,13 @@ def run_walk_forward_validation(
     in_sample: DateRange,
     out_of_sample: DateRange,
     backtest_agent: BacktestAgent | None = None,
+    data_quality_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate one fixed strategy over separate in-sample and OOS windows."""
 
     tester = backtest_agent or BacktestAgent()
-    in_sample_result = tester.run_backtest(strategy_config, _slice_market_data(data, in_sample))
-    out_of_sample_result = tester.run_backtest(strategy_config, _slice_market_data(data, out_of_sample))
+    in_sample_result = tester.run_backtest(strategy_config, _slice_market_data(data, in_sample), data_quality_report=data_quality_report)
+    out_of_sample_result = tester.run_backtest(strategy_config, _slice_market_data(data, out_of_sample), data_quality_report=data_quality_report)
     return {
         "strategy": strategy_config,
         "in_sample": _period_result(in_sample_result, in_sample),
@@ -35,6 +36,8 @@ def _period_result(backtest_result: dict[str, Any], date_range: DateRange) -> di
         "symbols": backtest_result["symbols"],
         "metrics": backtest_result["metrics"],
         "per_symbol_results": backtest_result["per_symbol_results"],
+        "cost_assumptions": backtest_result.get("cost_assumptions", {}),
+        "data_quality": backtest_result.get("data_quality", {"passed": True, "issues": []}),
     }
 
 

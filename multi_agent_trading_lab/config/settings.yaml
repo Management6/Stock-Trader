@@ -76,11 +76,6 @@ universes:
     - AMZN
     - META
     - TSLA
-symbols:
-  - AAPL
-  - MSFT
-start_date: "2023-01-01"
-end_date: "2023-06-30"
 strategy:
   name: moving_average_crossover
   version: "0.1.0"
@@ -140,6 +135,41 @@ research:
       long_window:
         min: 105
         max: 120
+oos_validation:
+  enabled: true
+  split_ratio: 0.70
+  min_sharpe: 0.0
+  max_drawdown: -0.20
+  min_return: -0.05
+data_quality:
+  block_on_missing_columns: true
+  block_on_duplicate_dates: true
+  block_on_invalid_prices: true
+  block_on_stale_data: false
+  block_on_large_gaps: false
+  block_on_zero_volume: false
+  expect_volume: true
+  max_gap_days: null
+  max_staleness_days: null
+portfolio:
+  enabled: false
+  allocation_method: equal_weight
+  max_symbols: null
+  min_valid_symbols: 3
+  min_total_return: -0.02
+  max_drawdown: -0.25
+  min_sharpe: 0.0
+  max_skipped_symbol_ratio: 0.50
+regime:
+  enabled: false
+  benchmark_symbol: SPY
+  lookback_days: 120
+  trend_ma_days: 50
+  max_volatility: 0.30
+  allowed_regimes:
+    - bullish
+    - trending
+  block_on_insufficient_data: true
 strategy_search:
   focus_on_risk_passing_pct: 0.70
   explore_risky_pct: 0.20
@@ -167,7 +197,7 @@ backtest:
   max_capital_per_trade_pct: 0.10
   allow_leverage: false
   commission_per_trade: 0.0
-  slippage_pct: 0.0
+  slippage_pct: 0.0005
 risk:
   kill_switch_enabled: false
   min_backtest_return: -0.05

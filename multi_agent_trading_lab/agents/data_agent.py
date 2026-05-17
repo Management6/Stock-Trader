@@ -105,8 +105,15 @@ class DataAgent(BaseAgent):
         report = validate_market_data(
             data,
             as_of_date=str(data_config.get("as_of_date")) if data_config.get("as_of_date") else None,
-            max_staleness_days=data_config.get("max_staleness_days"),
-            max_gap_days=data_config.get("max_gap_days"),
+            max_staleness_days=self._quality_setting("max_staleness_days", data_config.get("max_staleness_days")),
+            max_gap_days=self._quality_setting("max_gap_days", data_config.get("max_gap_days")),
+            block_on_missing_columns=bool(self._quality_setting("block_on_missing_columns", True)),
+            block_on_duplicate_dates=bool(self._quality_setting("block_on_duplicate_dates", True)),
+            block_on_invalid_prices=bool(self._quality_setting("block_on_invalid_prices", True)),
+            block_on_stale_data=bool(self._quality_setting("block_on_stale_data", False)),
+            block_on_large_gaps=bool(self._quality_setting("block_on_large_gaps", False)),
+            block_on_zero_volume=bool(self._quality_setting("block_on_zero_volume", False)),
+            expect_volume=bool(self._quality_setting("expect_volume", True)),
         )
         self.last_data_quality = report
         if not report.passed:
@@ -129,6 +136,9 @@ class DataAgent(BaseAgent):
             "timeframe": "1d",
             "cache_dir": "data/cache",
         }
+
+    def _quality_setting(self, key: str, default: Any) -> Any:
+        return dict(self.settings.get("data_quality", {})).get(key, default)
 
 
 def datetime_today() -> str:

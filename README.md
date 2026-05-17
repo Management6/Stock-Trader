@@ -378,13 +378,23 @@ Historical daily OHLCV data is configured in
 
 Named universes are configured under `universes`, with `data.default_universe`
 selecting the one used by research and backtest scripts unless overridden.
-Paper trading uses the same active universe by default: `risk.allowed_symbols`
-in `multi_agent_trading_lab/config/settings.yaml` is set to match the default
-`full_mix` universe. If you change `data.default_universe`, update
-`risk.allowed_symbols` at the same time unless you intentionally want paper
-orders outside the allow-list to be rejected. Those rejections are recorded in
-the audit log and daily paper reports with the rejected symbol and configured
-allow-list.
+Paper trading uses the same active universe by default. Runtime config
+resolution follows this precedence:
+
+1. `data.default_universe` selects `universes.<name>`.
+2. If no default universe is set, `data.symbols` is used.
+3. Legacy top-level `symbols`, `start_date`, and `end_date` are ignored when
+   `data` is present.
+4. `risk.allowed_symbols` is the paper execution allow-list. If it is omitted
+   or empty, it is derived from the active universe. If it is different from the
+   active universe, it is preserved and startup validation records a warning.
+
+`multi_agent_trading_lab/config/settings.yaml` is the runtime source of truth
+for orchestrated research and paper trading. `multi_agent_trading_lab/config/risk.yaml`
+is kept for standalone risk-policy checks and should mirror the `risk` section
+in `settings.yaml`; when they differ, orchestrator runs use `settings.yaml`.
+Allow-list rejections are recorded in the audit log and daily paper reports with
+the rejected symbol and configured allow-list.
 
 Example:
 

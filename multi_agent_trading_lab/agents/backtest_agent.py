@@ -36,7 +36,7 @@ class BacktestAgent(BaseAgent):
         self.commission_per_trade = commission_per_trade
         self.slippage_pct = slippage_pct
 
-    def run_backtest(self, strategy_config: dict[str, Any], data: MarketData) -> dict[str, Any]:
+    def run_backtest(self, strategy_config: dict[str, Any], data: MarketData, data_quality_report: dict[str, Any] | None = None) -> dict[str, Any]:
         per_symbol_results = {
             symbol: self._run_single_symbol_backtest(strategy_config, symbol, bars)
             for symbol, bars in data.items()
@@ -51,6 +51,7 @@ class BacktestAgent(BaseAgent):
             "per_symbol_results": per_symbol_results,
             "metrics": metrics,
             "cost_assumptions": self._cost_assumptions(),
+            "data_quality": data_quality_report or {"passed": True, "issues": []},
         }
 
     def _run_single_symbol_backtest(self, strategy_config: dict[str, Any], symbol: str, bars: list[dict[str, Any]]) -> dict[str, Any]:
@@ -65,13 +66,24 @@ class BacktestAgent(BaseAgent):
             slippage_pct=self.slippage_pct,
         )
         portfolio_values = [env.state.portfolio_value]
+        trade_count = 0
         done = False
         while not done:
+            previous_position = env.state.position
             signal = strategy.generate_signal(env.state.bar)
             state, _, done = env.step(signal)
+            if state.position != previous_position:
+                trade_count += 1
             portfolio_values.append(state.portfolio_value)
         metrics = self.evaluate_results(portfolio_values)
-        return {"symbol": symbol, "portfolio_values": portfolio_values, "metrics": metrics, "cost_assumptions": self._cost_assumptions()}
+        metrics["trade_count"] = trade_count
+        return {
+            "symbol": symbol,
+            "portfolio_values": portfolio_values,
+            "metrics": metrics,
+            "cost_assumptions": self._cost_assumptions(),
+            "trade_count": trade_count,
+        }
 
     def evaluate_results(self, results: list[float]) -> dict[str, float | int | None]:
         """Compute total return, max drawdown, and annualized Sharpe ratio."""

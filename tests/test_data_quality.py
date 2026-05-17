@@ -63,6 +63,32 @@ class DataQualityTests(unittest.TestCase):
         self.assertEqual(issue.severity, "warning")
         self.assertEqual(issue.details["gaps"], [{"from": "2026-01-01", "to": "2026-01-10", "days": 9}])
 
+    def test_config_can_promote_stale_gap_and_zero_volume_warnings_to_errors(self) -> None:
+        zero_volume = self._bar("2026-01-01")
+        zero_volume["volume"] = 0.0
+        report = validate_market_data(
+            {"TEST": [zero_volume, self._bar("2026-01-10")]},
+            as_of_date="2026-01-20",
+            max_staleness_days=3,
+            max_gap_days=3,
+            block_on_stale_data=True,
+            block_on_large_gaps=True,
+            block_on_zero_volume=True,
+        )
+
+        self.assertFalse(report.passed)
+        self.assertEqual(self._issue(report, "stale_data").severity, "error")
+        self.assertEqual(self._issue(report, "large_gap").severity, "error")
+        self.assertEqual(self._issue(report, "zero_volume").severity, "error")
+
+    def test_volume_can_be_optional(self) -> None:
+        no_volume = self._bar("2026-01-01")
+        del no_volume["volume"]
+
+        report = validate_market_data({"TEST": [no_volume]}, expect_volume=False)
+
+        self.assertTrue(report.passed)
+
     def test_data_agent_exposes_structured_quality_report_and_blocks_errors(self) -> None:
         agent = DataAgent({"data": {"provider": "synthetic", "symbols": ["TEST"], "start_date": "2026-01-01", "end_date": "2026-01-03"}})
         bad_data = {"TEST": [self._bar("2026-01-01"), self._bar("2026-01-01")]}

@@ -47,6 +47,24 @@ class WalkForwardValidationTests(unittest.TestCase):
         self.assertEqual(result["out_of_sample"]["metrics"]["history_points"], 4)
         self.assertNotEqual(result["in_sample"]["metrics"]["total_return"], result["out_of_sample"]["metrics"]["total_return"])
 
+    def test_result_exposes_cost_assumptions_for_each_period(self) -> None:
+        strategy = {
+            "name": "moving_average_crossover",
+            "version": "0.1.0",
+            "strategy_params": {"short_window": 5, "long_window": 20},
+        }
+
+        result = run_walk_forward_validation(
+            strategy,
+            {"TEST": self._bars()},
+            in_sample=("2023-01-01", "2023-01-05"),
+            out_of_sample=("2023-01-06", "2023-01-10"),
+            backtest_agent=BacktestAgent(commission_per_trade=1.0, slippage_pct=0.001),
+        )
+
+        self.assertEqual(result["in_sample"]["cost_assumptions"], {"commission_per_trade": 1.0, "slippage_pct": 0.001})
+        self.assertEqual(result["out_of_sample"]["cost_assumptions"], {"commission_per_trade": 1.0, "slippage_pct": 0.001})
+
     def test_existing_backtest_result_shape_still_works(self) -> None:
         strategy = {
             "name": "moving_average_crossover",

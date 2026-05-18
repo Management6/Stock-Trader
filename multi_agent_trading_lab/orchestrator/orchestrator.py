@@ -264,8 +264,8 @@ class TradingLabOrchestrator:
 
         data_config = self._data_config()
         symbols = list(data_config["symbols"])
-        start_date = str(data_config["start_date"])
-        end_date = data_config.get("end_date")
+        start_date = _metadata_date_to_string(data_config["start_date"])
+        end_date = _metadata_date_to_string(data_config.get("end_date"))
         profile = self.discovery_agent.build_profile({"symbols": symbols})
         research_settings = self.settings.get("research", {})
         families = self._resolve_strategy_families(strategy_families)
@@ -985,6 +985,12 @@ def _market_data_summary(
         "source": source,
         "ranges": ranges,
     }
+
+
+def _metadata_date_to_string(value: Any) -> str | None:
+    if value in {None, "null", ""}:
+        return None
+    return str(value)
 
 
 def _metric(metrics: dict[str, Any], *keys: str) -> float | None:

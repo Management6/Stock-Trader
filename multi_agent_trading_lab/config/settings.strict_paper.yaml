@@ -7,8 +7,8 @@ data:
     - BETA
     - SPY
   timeframe: 1d
-  start_date: 2023-01-03
-  end_date: 2023-08-31
+  start_date: "2023-01-03"
+  end_date: "2023-08-31"
   as_of_date: 2023-08-31
   cache_dir: data/cache
   force_refresh: false

@@ -6,19 +6,28 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
 
 from multi_agent_trading_lab.experiments.audit_log import AuditLog
 from multi_agent_trading_lab.operations.alerting import AlertManager, AlertSeverity, FileAlertSink
+from multi_agent_trading_lab.operations.approval_search import run_approval_search
 from multi_agent_trading_lab.operations.approvals import ApprovalQueue
+from multi_agent_trading_lab.operations.candidate_robustness import run_candidate_robustness
 from multi_agent_trading_lab.operations.kill_switch import activate_kill_switch
+from multi_agent_trading_lab.operations.paper_watchlist import PAPER_MONITORING_WARNING, select_paper_watchlist
 from multi_agent_trading_lab.operations.paper_reporting import DailyPaperReportService
+from multi_agent_trading_lab.orchestrator.orchestrator import load_settings
 from multi_agent_trading_lab.state.system_state import SystemStateStore
 from multi_agent_trading_lab.strategies.registry import StrategyRegistry
 
 
-VALIDATION_SCENARIOS = [
+APPROVAL_ROBUSTNESS_SMOKE_TRIALS = 10
+APPROVAL_ROBUSTNESS_SMOKE_SEED = 42
+APPROVAL_PROFILE_PATH = Path("multi_agent_trading_lab/config/settings.approval_paper.yaml")
+
+CORE_VALIDATION_SCENARIOS = [
     "happy_path_daily_cycle",
     "approval_required_candidate",
     "repeated_order_rejections",
@@ -29,6 +38,13 @@ VALIDATION_SCENARIOS = [
     "daily_report_generation",
     "runbook_integrity_check",
 ]
+
+OPTIONAL_VALIDATION_SCENARIOS = [
+    "approval_search_candidate_robustness",
+    "paper_watchlist_selection",
+]
+
+VALIDATION_SCENARIOS = [*CORE_VALIDATION_SCENARIOS, *OPTIONAL_VALIDATION_SCENARIOS]
 
 
 @dataclass(frozen=True)
@@ -142,7 +158,7 @@ class Phase2ValidationRunner:
         self.runbooks_dir = Path(runbooks_dir)
 
     def run(self, scenario: str = "all") -> ValidationSummary:
-        scenario_names = VALIDATION_SCENARIOS if scenario == "all" else [scenario]
+        scenario_names = CORE_VALIDATION_SCENARIOS if scenario == "all" else [scenario]
         unknown = [name for name in scenario_names if name not in VALIDATION_SCENARIOS]
         if unknown:
             raise ValueError(f"Unknown validation scenario(s): {', '.join(unknown)}")
@@ -171,6 +187,8 @@ class Phase2ValidationRunner:
             "kill_switch_persistence": _kill_switch_persistence,
             "daily_report_generation": _daily_report_generation,
             "runbook_integrity_check": lambda ctx: _runbook_integrity_check(ctx, self.runbooks_dir),
+            "approval_search_candidate_robustness": _approval_search_candidate_robustness,
+            "paper_watchlist_selection": _paper_watchlist_selection,
         }
         try:
             return scenario_map[name](context)
@@ -414,6 +432,166 @@ def _runbook_integrity_check(context: ValidationContext, runbooks_dir: Path) -> 
     )
 
 
+def _approval_search_candidate_robustness(context: ValidationContext) -> ScenarioResult:
+    before = load_settings(APPROVAL_PROFILE_PATH)
+    start = perf_counter()
+    output_root = context.scenario_dir / "approval_search_candidate_robustness"
+    search = run_approval_search(
+        APPROVAL_PROFILE_PATH,
+        trials=APPROVAL_ROBUSTNESS_SMOKE_TRIALS,
+        seed=APPROVAL_ROBUSTNESS_SMOKE_SEED,
+        output_root=output_root,
+    )
+    approval_summary_path = search.output_dir / "approval_search_summary.json"
+    robustness = run_candidate_robustness(
+        APPROVAL_PROFILE_PATH,
+        approval_summary_path,
+        output_root=output_root,
+    )
+    runtime_seconds = perf_counter() - start
+    after = load_settings(APPROVAL_PROFILE_PATH)
+    approval_payload = json.loads(approval_summary_path.read_text(encoding="utf-8"))
+    robustness_payload = json.loads(robustness.report_path.read_text(encoding="utf-8"))
+    experiment_records = _read_jsonl(search.experiment_log_path)
+    status_total = sum(int(value) for value in robustness.status_counts.values())
+    thresholds_unchanged = all(
+        after.get(key) == before.get(key)
+        for key in ("oos_validation", "portfolio", "risk", "backtest")
+    )
+    checks = {
+        "smoke_trials_per_family": APPROVAL_ROBUSTNESS_SMOKE_TRIALS,
+        "seed": APPROVAL_ROBUSTNESS_SMOKE_SEED,
+        "runtime_seconds": round(runtime_seconds, 3),
+        "approval_summary_exists": approval_summary_path.exists(),
+        "candidate_robustness_summary_exists": robustness.report_path.exists(),
+        "approval_json_valid": approval_payload.get("total_trials") == search.total_trials,
+        "robustness_json_valid": robustness_payload.get("evaluated_count") == robustness.evaluated_count,
+        "non_empty_trial_records": len(experiment_records) > 0,
+        "total_trials": search.total_trials,
+        "accepted_count": search.accepted_count,
+        "rejected_count": search.rejected_count,
+        "accepted_or_rejected_counts_match_total": search.accepted_count + search.rejected_count == search.total_trials,
+        "robustness_reads_approval_candidates": robustness.evaluated_count == search.accepted_count,
+        "robustness_evaluated_candidates": robustness.evaluated_count > 0,
+        "robustness_status_counts": dict(robustness.status_counts),
+        "robustness_status_counts_match_evaluated": status_total == robustness.evaluated_count,
+        "live_trading_disabled": bool(before.get("broker", {}).get("live_enabled")) is False,
+        "execution_mode_paper": str(before.get("execution", {}).get("mode")) == "paper",
+        "approval_thresholds_unchanged": thresholds_unchanged,
+    }
+    artifact = context.write_scenario_artifact(
+        "approval_search_candidate_robustness",
+        {
+            "checks": checks,
+            "approval_search_summary": str(approval_summary_path),
+            "candidate_robustness_summary": str(robustness.report_path),
+            "experiment_log_path": str(search.experiment_log_path),
+        },
+    )
+    passed = all(
+        bool(checks[key])
+        for key in (
+            "approval_summary_exists",
+            "candidate_robustness_summary_exists",
+            "approval_json_valid",
+            "robustness_json_valid",
+            "non_empty_trial_records",
+            "accepted_or_rejected_counts_match_total",
+            "robustness_reads_approval_candidates",
+            "robustness_evaluated_candidates",
+            "robustness_status_counts_match_evaluated",
+            "live_trading_disabled",
+            "execution_mode_paper",
+            "approval_thresholds_unchanged",
+        )
+    )
+    return ScenarioResult(
+        "approval_search_candidate_robustness",
+        passed,
+        checks,
+        {
+            "scenario": artifact,
+            "approval_search_summary": approval_summary_path,
+            "candidate_robustness_summary": robustness.report_path,
+            "experiment_log": search.experiment_log_path,
+        },
+        ["Review full 100-trial approval search and robustness artifacts before operator promotion decisions."],
+    )
+
+
+def _paper_watchlist_selection(context: ValidationContext) -> ScenarioResult:
+    scenario_root = context.scenario_dir / "paper_watchlist_selection_inputs"
+    scenario_root.mkdir(parents=True, exist_ok=True)
+    experiment_log = scenario_root / "experiments.jsonl"
+    records = [
+        _watchlist_sample_record("validation_ma_good", "moving_average_crossover", True, 2.0, 0.03, -0.02, 0.04, -0.03),
+        _watchlist_sample_record("validation_breakout_good", "breakout_trend", True, 1.2, 0.02, -0.01, 0.03, -0.02),
+        _watchlist_sample_record("validation_ma_fragile", "moving_average_crossover", True, 3.0, 0.05, -0.01, 0.05, -0.01),
+        _watchlist_sample_record("validation_rejected", "breakout_trend", False, 4.0, 0.07, -0.01, 0.06, -0.01),
+    ]
+    experiment_log.write_text("\n".join(json.dumps(record, sort_keys=True) for record in records) + "\n", encoding="utf-8")
+    approval_summary_path = scenario_root / "approval_search_summary.json"
+    approval_summary_path.write_text(json.dumps({"experiment_log_path": str(experiment_log), "total_trials": len(records)}) + "\n", encoding="utf-8")
+    robustness_summary_path = scenario_root / "candidate_robustness_summary.json"
+    robustness_summary_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    _watchlist_sample_robustness("validation_ma_good", "robust"),
+                    _watchlist_sample_robustness("validation_breakout_good", "robust"),
+                    _watchlist_sample_robustness("validation_ma_fragile", "fragile"),
+                    _watchlist_sample_robustness("validation_rejected", "robust"),
+                ],
+                "status_counts": {"robust": 3, "fragile": 1},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    watchlist = select_paper_watchlist(
+        approval_summary_path,
+        robustness_summary_path,
+        max_candidates=3,
+        output_root=context.scenario_dir,
+        diversify_by_family=True,
+    )
+    selected_ids = [candidate["candidate_id"] for candidate in watchlist.selected_candidates]
+    checks = {
+        "watchlist_json_exists": watchlist.watchlist_json_path.exists(),
+        "watchlist_markdown_exists": watchlist.watchlist_markdown_path.exists(),
+        "selected_count": watchlist.selected_count,
+        "selected_ids": selected_ids,
+        "fragile_excluded": "validation_ma_fragile" not in selected_ids,
+        "rejected_excluded": "validation_rejected" not in selected_ids,
+        "max_candidates_respected": watchlist.selected_count <= 3,
+        "approval_queue_written": watchlist.approval_queue_written,
+        "warning_present": PAPER_MONITORING_WARNING in watchlist.watchlist_markdown_path.read_text(encoding="utf-8"),
+    }
+    passed = (
+        checks["watchlist_json_exists"]
+        and checks["watchlist_markdown_exists"]
+        and checks["selected_count"] == 2
+        and checks["fragile_excluded"]
+        and checks["rejected_excluded"]
+        and checks["max_candidates_respected"]
+        and not checks["approval_queue_written"]
+        and checks["warning_present"]
+    )
+    artifact = context.write_scenario_artifact("paper_watchlist_selection", checks)
+    return ScenarioResult(
+        "paper_watchlist_selection",
+        passed,
+        checks,
+        {
+            "scenario": artifact,
+            "watchlist_json": watchlist.watchlist_json_path,
+            "watchlist_markdown": watchlist.watchlist_markdown_path,
+        },
+        ["Review selected paper watchlist candidates before placing any paper-monitoring decision in the approval queue."],
+    )
+
+
 def validate_runbooks(runbooks_dir: str | Path = "docs/runbooks") -> ValidationCheckResult:
     runbooks_dir = Path(runbooks_dir)
     required_files = {
@@ -448,6 +626,77 @@ def _event_count(path: Path, event_type: str) -> int:
     if not path.exists():
         return 0
     return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and json.loads(line).get("event_type") == event_type)
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _watchlist_sample_record(
+    candidate_id: str,
+    family: str,
+    accepted: bool,
+    oos_sharpe: float,
+    oos_return: float,
+    oos_drawdown: float,
+    portfolio_return: float,
+    portfolio_drawdown: float,
+) -> dict[str, Any]:
+    strategy = {
+        "id": candidate_id,
+        "name": family,
+        "version": "0.1.0",
+        "strategy_params": {"short_window": 5, "long_window": 30},
+    }
+    return {
+        "id": candidate_id,
+        "strategy_name": family,
+        "strategy_params": strategy["strategy_params"],
+        "config": {"strategy": strategy},
+        "metrics": {
+            "total_return": oos_return,
+            "max_drawdown": oos_drawdown,
+            "sharpe_ratio": oos_sharpe,
+            "cost_assumptions": {"commission_per_trade": 0.0, "slippage_pct": 0.0005},
+            "optimizer_trial": {
+                "gate_outcome": "accepted" if accepted else "rejected",
+                "objective_score": oos_sharpe,
+                "trial_number": 1,
+            },
+            "walk_forward": {
+                "out_of_sample": {
+                    "metrics": {
+                        "sharpe_ratio": oos_sharpe,
+                        "total_return": oos_return,
+                        "max_drawdown": oos_drawdown,
+                    }
+                }
+            },
+            "portfolio_backtest": {
+                "metrics": {
+                    "total_return": portfolio_return,
+                    "max_drawdown": portfolio_drawdown,
+                    "sharpe_ratio": oos_sharpe + 0.5,
+                }
+            },
+            "market_regime": {"regime": "bullish"},
+        },
+        "risk_decision": {"approved": accepted, "reason": "accepted" if accepted else "rejected"},
+    }
+
+
+def _watchlist_sample_robustness(candidate_id: str, status: str) -> dict[str, Any]:
+    return {
+        "candidate_id": candidate_id,
+        "status": status,
+        "checks_passed": 12 if status == "robust" else 10,
+        "checks_failed": 0 if status == "robust" else 2,
+        "worst_oos_metric": 0.5,
+        "worst_portfolio_metric": 1.0,
+        "worst_cost_stress_result": {"name": "slippage_0.0025", "passed": status == "robust"},
+    }
 
 
 def _alert_count(context: ValidationContext, severity: str) -> int:

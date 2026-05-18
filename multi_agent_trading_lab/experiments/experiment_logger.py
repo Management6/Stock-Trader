@@ -97,7 +97,7 @@ class ExperimentLogger:
         )
         payload = record.to_dict()
         with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+            handle.write(json.dumps(payload, default=str, sort_keys=True) + "\n")
         return payload
 
     def list_recent_experiments(self, limit: int = 20) -> list[dict[str, Any]]:

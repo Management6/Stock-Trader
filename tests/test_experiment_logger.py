@@ -1,5 +1,7 @@
+import json
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from multi_agent_trading_lab.experiments.experiment_logger import ExperimentLogger, load_experiments, load_experiments_for_strategy
@@ -50,6 +52,28 @@ class ExperimentLoggerTests(unittest.TestCase):
         self.assertEqual(records[0].metrics["sharpe_ratio"], 1.5)
         self.assertEqual(records[0].data_range["symbols"], ["AAPL"])
         self.assertEqual(len(strategy_records), 1)
+
+    def test_experiment_logger_persists_date_like_values_as_json_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "memory.jsonl"
+            logger = ExperimentLogger(path)
+            record = logger.log_experiment(
+                config={
+                    "strategy": {"id": "example"},
+                    "symbols": ["AAPL"],
+                    "start_date": date(2023, 1, 1),
+                    "end_date": date(2023, 2, 1),
+                },
+                metrics={"total_return": 0.1, "max_drawdown": -0.02, "sharpe_ratio": 1.0},
+                risk_decision={"approved": True, "reviewed_on": date(2023, 2, 2)},
+            )
+            persisted = json.loads(path.read_text(encoding="utf-8").strip())
+
+        self.assertEqual(persisted["data_range"]["start_date"], "2023-01-01")
+        self.assertEqual(persisted["data_range"]["end_date"], "2023-02-01")
+        self.assertEqual(persisted["config"]["start_date"], "2023-01-01")
+        self.assertEqual(persisted["risk_decision"]["reviewed_on"], "2023-02-02")
+        self.assertEqual(record["data_range"]["start_date"], date(2023, 1, 1))
 
 
 if __name__ == "__main__":

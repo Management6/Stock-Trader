@@ -28,3 +28,6 @@ jobs:
 
       - name: Run Phase 2 validation
         run: python3 scripts/run_phase2_validation.py --scenario all --output-root /tmp/phase2_validation
+
+      - name: Run approval robustness smoke validation
+        run: python3 scripts/run_phase2_validation.py --scenario approval_search_candidate_robustness --output-root /tmp/approval_robustness_validation

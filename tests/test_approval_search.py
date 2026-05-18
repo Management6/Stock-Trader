@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -51,8 +52,19 @@ class ApprovalSearchTests(unittest.TestCase):
         before = load_settings(APPROVAL_PROFILE)
         with tempfile.TemporaryDirectory() as tmpdir:
             summary = run_approval_search(APPROVAL_PROFILE, trials=1, seed=3, output_root=Path(tmpdir))
+            summary_path = summary.output_dir / "approval_search_summary.json"
+            self.assertTrue(summary_path.exists())
+            persisted_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            records = [
+                json.loads(line)
+                for line in summary.experiment_log_path.read_text(encoding="utf-8").splitlines()
+            ]
         after = load_settings(APPROVAL_PROFILE)
 
+        self.assertEqual(persisted_summary["total_trials"], 3)
+        self.assertTrue(records)
+        self.assertIsInstance(records[0]["data_range"]["start_date"], str)
+        self.assertIsInstance(records[0]["data_range"]["end_date"], str)
         self.assertEqual(after["oos_validation"], before["oos_validation"])
         self.assertEqual(after["portfolio"], before["portfolio"])
         self.assertEqual(after["risk"], before["risk"])

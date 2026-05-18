@@ -69,8 +69,24 @@ thresholds automatically just to produce an accepted strategy. Instead, review
 the rejection breakdown, especially OOS return, OOS Sharpe, portfolio return,
 portfolio Sharpe, data-quality failures, and regime gate decisions.
 
-To search more broadly across existing strategy families without changing
-approval thresholds, run:
+For CI smoke validation, run the approval-search to candidate-robustness
+pipeline through the Phase 2 harness:
+
+```bash
+python3 scripts/run_phase2_validation.py \
+  --scenario approval_search_candidate_robustness \
+  --output-root /tmp/approval_robustness_validation
+```
+
+The smoke scenario uses `settings.approval_paper.yaml`, 10 trials per family,
+and seed `42`. It checks that `approval_search_summary.json` and
+`candidate_robustness_summary.json` are valid JSON, experiment records are
+non-empty, accepted/rejected and robustness counts are present, robustness reads
+the accepted candidates from the approval-search output, approval thresholds are
+unchanged, and live trading remains disabled.
+
+For the full operator approval search across existing strategy families without
+changing approval thresholds, run:
 
 ```bash
 python3 scripts/run_approval_search.py \
@@ -80,14 +96,14 @@ python3 scripts/run_approval_search.py \
   --output-root /tmp/approval_search
 ```
 
-The approval search reports trials, accepted/rejected counts, best candidate per
-family, top rejection reasons, and the best near miss. It can include the
-existing `moving_average_crossover`, `moving_average_rsi_filter`, and
-`breakout_trend` families. It does not approve anything outside the normal
+The full approval search reports trials, accepted/rejected counts, best
+candidate per family, top rejection reasons, and the best near miss. It can
+include the existing `moving_average_crossover`, `moving_average_rsi_filter`,
+and `breakout_trend` families. It does not approve anything outside the normal
 approval queue mechanics.
 
-After approval search finds candidates, run robustness validation before manual
-review:
+After the full approval search finds candidates, run the full robustness review
+before manual review:
 
 ```bash
 python3 scripts/run_candidate_robustness.py \
@@ -102,6 +118,49 @@ the configured regime gate. A `robust` status means the candidate survived those
 checks. A `fragile` status means it passed the base approval profile but failed
 one or more stresses; inspect the top failure reason before putting it in front
 of an operator for serious paper approval.
+
+Use the CI smoke only to prove the pipeline still runs. Use the full 100-trial
+approval search plus full robustness review for operator decisions.
+
+## Paper Watchlist Review
+
+After the full robustness review, create a small operator-reviewed paper
+watchlist from robust accepted candidates:
+
+```bash
+python3 scripts/select_paper_watchlist.py \
+  --approval-summary /tmp/approval_search/<approval-run>/approval_search_summary.json \
+  --robustness-summary /tmp/candidate_robustness/<robustness-run>/candidate_robustness_summary.json \
+  --max-candidates 5 \
+  --output-root /tmp/paper_watchlist
+```
+
+The selector is read-only by default. It writes `paper_watchlist.json` and
+`paper_watchlist.md` with candidate ids, strategy families, parameters, OOS
+metrics, portfolio metrics, robustness summaries, cost assumptions, regime
+results, and reasons for selection. The report includes an explicit warning
+that the list is for paper monitoring only, not live trading.
+
+Ranking is deterministic. Eligible candidates must be both approval-accepted
+and robustness-robust. The ranking then prefers higher OOS Sharpe, positive and
+higher OOS return, lower OOS drawdown, positive and higher portfolio return,
+lower portfolio drawdown, and higher objective score. By default, candidates
+are diversified by strategy family before filling the remaining slots.
+
+Only use approval-queue writing when an operator has reviewed the watchlist and
+wants local promotion-request artifacts:
+
+```bash
+python3 scripts/select_paper_watchlist.py \
+  --approval-summary /tmp/approval_search/<approval-run>/approval_search_summary.json \
+  --robustness-summary /tmp/candidate_robustness/<robustness-run>/candidate_robustness_summary.json \
+  --max-candidates 5 \
+  --output-root /tmp/paper_watchlist \
+  --write-approval-queue
+```
+
+That flag writes an approval queue under the watchlist output directory. It
+does not approve strategies, enable live trading, or change broker behavior.
 
 Passing `approval_paper` still does not mean a strategy is live-trading ready.
 It only means the candidate passed a stricter local research and paper approval

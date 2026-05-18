@@ -282,6 +282,29 @@ Available scenarios:
 - `daily_report_generation`
 - `runbook_integrity_check`
 
+CI also runs a separate approval-search to candidate-robustness smoke scenario:
+
+```bash
+python3 scripts/run_phase2_validation.py \
+  --scenario approval_search_candidate_robustness \
+  --output-root /tmp/approval_robustness_validation
+```
+
+This smoke uses `settings.approval_paper.yaml` with 10 trials per family and
+seed `42`. It verifies the approval-search JSON, candidate-robustness JSON,
+non-empty experiment records, accepted/rejected counts, robustness status
+counts, candidate handoff, unchanged approval thresholds, and disabled live
+trading. It is only a CI regression guard, not an operator-quality search.
+
+There is also an optional deterministic sample scenario for paper watchlist
+selection:
+
+```bash
+python3 scripts/run_phase2_validation.py \
+  --scenario paper_watchlist_selection \
+  --output-root /tmp/paper_watchlist_validation
+```
+
 Validation artifacts are written under:
 
 ```text
@@ -300,6 +323,24 @@ Good enough for longer unattended paper testing means all validation scenarios
 pass, the operator report is understandable, alerts are actionable without
 duplicates, kill-switch persistence is clear, and the runbooks pass the
 integrity check. This is still not approval for live trading.
+
+## Paper Watchlist
+
+After a full approval search and robustness review, create a small paper
+monitoring watchlist:
+
+```bash
+python3 scripts/select_paper_watchlist.py \
+  --approval-summary /tmp/approval_search/<approval-run>/approval_search_summary.json \
+  --robustness-summary /tmp/candidate_robustness/<robustness-run>/candidate_robustness_summary.json \
+  --max-candidates 5 \
+  --output-root /tmp/paper_watchlist
+```
+
+The command is read-only by default and writes JSON plus Markdown reports. It
+selects only robust, approval-accepted candidates and warns that the list is for
+paper monitoring only, not live trading. Approval-queue writing requires the
+explicit `--write-approval-queue` flag and still does not approve strategies.
 
 ## Research Objective And Sharpe Ratio
 

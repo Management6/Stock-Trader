@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from multi_agent_trading_lab.operations.validation import (
+    APPROVAL_ROBUSTNESS_SMOKE_TRIALS,
     Phase2ValidationRunner,
     validate_runbooks,
 )
@@ -24,6 +25,7 @@ class Phase2ValidationTests(unittest.TestCase):
             payload = json.loads((summary.output_dir / "validation_summary.json").read_text(encoding="utf-8"))
             self.assertTrue(payload["passed"])
             self.assertGreaterEqual(len(payload["scenarios"]), 9)
+            self.assertNotIn("approval_search_candidate_robustness", [item["name"] for item in payload["scenarios"]])
 
     def test_approval_required_candidate_does_not_activate_strategy(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -52,6 +54,37 @@ class Phase2ValidationTests(unittest.TestCase):
             self.assertTrue(result.passed)
             self.assertTrue(result.checks["kill_switch_enabled_after_restart"])
             self.assertTrue(result.checks["future_cycle_noop_recorded"])
+
+    def test_approval_search_candidate_robustness_smoke_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = Phase2ValidationRunner(output_root=Path(tmpdir)).run("approval_search_candidate_robustness")
+            result = summary.scenarios[0]
+            approval_summary = json.loads(result.artifacts["approval_search_summary"].read_text(encoding="utf-8"))
+            robustness_summary = json.loads(result.artifacts["candidate_robustness_summary"].read_text(encoding="utf-8"))
+
+            self.assertTrue(result.passed)
+            self.assertEqual(result.checks["smoke_trials_per_family"], APPROVAL_ROBUSTNESS_SMOKE_TRIALS)
+            self.assertEqual(result.checks["total_trials"], APPROVAL_ROBUSTNESS_SMOKE_TRIALS * 3)
+            self.assertGreater(result.checks["accepted_count"], 0)
+            self.assertEqual(result.checks["accepted_count"] + result.checks["rejected_count"], result.checks["total_trials"])
+            self.assertEqual(result.checks["robustness_evaluated_candidates"], True)
+            self.assertEqual(robustness_summary["evaluated_count"], approval_summary["accepted_count"])
+            self.assertEqual(robustness_summary["status_counts"], result.checks["robustness_status_counts"])
+            self.assertTrue(result.checks["live_trading_disabled"])
+            self.assertTrue(result.checks["approval_thresholds_unchanged"])
+
+    def test_paper_watchlist_selection_scenario_uses_sample_summaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = Phase2ValidationRunner(output_root=Path(tmpdir)).run("paper_watchlist_selection")
+            result = summary.scenarios[0]
+
+            self.assertTrue(result.passed)
+            self.assertEqual(result.checks["selected_count"], 2)
+            self.assertTrue(result.checks["fragile_excluded"])
+            self.assertTrue(result.checks["rejected_excluded"])
+            self.assertFalse(result.checks["approval_queue_written"])
+            self.assertTrue(result.artifacts["watchlist_json"].exists())
+            self.assertTrue(result.artifacts["watchlist_markdown"].exists())
 
     def test_runbook_validator_fails_when_required_sections_are_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

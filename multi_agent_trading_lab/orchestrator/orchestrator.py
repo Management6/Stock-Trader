@@ -126,7 +126,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "method": "deterministic_random",
         "seed": 42,
         "n_trials": 25,
-        "objective": "risk_adjusted_return",
     },
     "strategy_search": {
         "focus_on_risk_passing_pct": 0.70,
@@ -316,6 +315,14 @@ class TradingLabOrchestrator:
                     "details": {"exception": repr(exc), "data_quality": data_quality},
                 }
                 metrics = {"total_return": 0.0, "max_drawdown": 0.0, "sharpe_ratio": 0.0, "sharpe": 0.0, "history_points": 0}
+                if optimizer_trial is not None:
+                    optimizer_trial = {
+                        **optimizer_trial,
+                        "objective_score": None,
+                        "gate_outcome": "failed",
+                        "rejection_reason": str(exc),
+                    }
+                    metrics["optimizer_trial"] = optimizer_trial
                 record = self.logger.log_experiment(
                     config={
                         "strategy": variant,
@@ -331,14 +338,7 @@ class TradingLabOrchestrator:
                     mode="backtest",
                 )
                 if optimizer_trial is not None:
-                    optimizer_trial = {
-                        **optimizer_trial,
-                        "objective_score": None,
-                        "gate_outcome": "failed",
-                        "rejection_reason": str(exc),
-                    }
                     record["optimizer_trial"] = optimizer_trial
-                    record["metrics"]["optimizer_trial"] = optimizer_trial
                 records.append(record)
                 self.strategy_registry.promote(variant["id"], "rejected", str(risk_decision["reason"]))
                 self.audit_log.record("optimizer_trial_failed", {"strategy": variant, "optimizer_trial": optimizer_trial, "reason": str(exc)})
@@ -405,6 +405,15 @@ class TradingLabOrchestrator:
                             },
                         }
             stage = "paper" if risk_decision["approved"] else "rejected"
+            objective_score = score_metrics(backtest["metrics"], self.settings.get("research_objective", {}))
+            if optimizer_trial is not None:
+                optimizer_trial = {
+                    **optimizer_trial,
+                    "objective_score": objective_score,
+                    "gate_outcome": "accepted" if risk_decision["approved"] else "rejected",
+                    "rejection_reason": None if risk_decision["approved"] else risk_decision["reason"],
+                }
+                promotion_metrics["optimizer_trial"] = optimizer_trial
             record = self.logger.log_experiment(
                 config={
                     "strategy": variant,
@@ -413,23 +422,15 @@ class TradingLabOrchestrator:
                     "end_date": end_date,
                     "deployment_stage": stage,
                 },
-                metrics=backtest["metrics"],
+                metrics=promotion_metrics,
                 risk_decision=risk_decision,
                 approval_status="approved" if risk_decision["approved"] else "rejected",
                 deployment_stage=stage,
                 mode="backtest",
             )
-            record["objective_score"] = score_metrics(record["metrics"], self.settings.get("research_objective", {}))
+            record["objective_score"] = objective_score
             if optimizer_trial is not None:
-                optimizer_trial = {
-                    **optimizer_trial,
-                    "objective_score": record["objective_score"],
-                    "gate_outcome": "accepted" if risk_decision["approved"] else "rejected",
-                    "rejection_reason": None if risk_decision["approved"] else risk_decision["reason"],
-                }
                 record["optimizer_trial"] = optimizer_trial
-                record["metrics"]["optimizer_trial"] = optimizer_trial
-                promotion_metrics["optimizer_trial"] = optimizer_trial
             if walk_forward is not None:
                 record["walk_forward"] = walk_forward
             if portfolio_backtest is not None:

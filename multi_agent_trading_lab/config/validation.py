@@ -83,6 +83,7 @@ def normalize_trading_config(settings: dict[str, Any]) -> tuple[dict[str, Any], 
 
     _validate_oos(resolved.get("oos_validation", {}), errors)
     _validate_backtest_costs(resolved.get("backtest", {}), errors)
+    _validate_optimizer(resolved.get("optimizer", {}), errors, warnings)
 
     return resolved, ConfigValidationReport(
         warnings=warnings,
@@ -123,6 +124,26 @@ def _validate_backtest_costs(config: dict[str, Any], errors: list[str]) -> None:
         errors.append("backtest.slippage_pct is required.")
     elif float(config.get("slippage_pct", 0.0)) < 0.0:
         errors.append("backtest.slippage_pct must be non-negative.")
+
+
+def _validate_optimizer(config: dict[str, Any], errors: list[str], warnings: list[str]) -> None:
+    if not config:
+        return
+
+    expected_keys = {"enabled", "method", "seed", "n_trials"}
+    for key in sorted(set(config) - expected_keys):
+        warnings.append(f"optimizer.{key} is not used and should be removed.")
+
+    if "enabled" in config and not isinstance(config["enabled"], bool):
+        errors.append("optimizer.enabled must be a boolean.")
+    if "method" in config and config["method"] != "deterministic_random":
+        errors.append("optimizer.method must be deterministic_random.")
+    if "seed" in config and (not isinstance(config["seed"], int) or isinstance(config["seed"], bool)):
+        errors.append("optimizer.seed must be an integer.")
+    if "n_trials" in config:
+        n_trials = config["n_trials"]
+        if not isinstance(n_trials, int) or isinstance(n_trials, bool) or n_trials <= 0:
+            errors.append("optimizer.n_trials must be a positive integer.")
 
 
 def _clean_symbols(symbols: Any) -> list[str]:

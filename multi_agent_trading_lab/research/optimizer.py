@@ -45,6 +45,10 @@ class DeterministicRandomOptimizer:
             candidate["stop_loss_pct"] = params.get("stop_loss_pct")
             candidate["take_profit_pct"] = params.get("take_profit_pct")
             candidates.append(candidate)
+        if len(candidates) < n_trials:
+            warning = f"Optimizer produced {len(candidates)} candidate(s), fewer than requested {n_trials}."
+            for candidate in candidates:
+                candidate["optimizer_trial"].setdefault("warnings", []).append(warning)
         return candidates
 
     def record_result(self, candidate: dict[str, Any], score: float | None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:

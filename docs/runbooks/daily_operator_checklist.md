@@ -22,6 +22,10 @@ Run once per operating day and after any batch of manual paper-trading tests.
    python3 scripts/review_strategy_promotions.py --list
    ```
 
+   Optimizer-generated entries include `metrics.optimizer_trial`. Review the
+   trial number, parameters, `gate_outcome`, and any `rejection_reason`; failed
+   trials also appear in the audit log as `optimizer_trial_failed`.
+
 3. Inspect alerts:
 
    ```bash

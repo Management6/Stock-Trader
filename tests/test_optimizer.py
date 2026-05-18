@@ -52,6 +52,17 @@ class OptimizerTests(unittest.TestCase):
         self.assertEqual(best[0]["score"], 2.0)
         self.assertEqual(best[0]["metadata"]["gate_outcome"], "accepted")
 
+    def test_optimizer_warns_when_unique_candidate_space_is_exhausted(self) -> None:
+        candidates = propose_candidates(
+            "moving_average_crossover",
+            {"short_window": {"min": 5, "max": 5}, "long_window": {"min": 6, "max": 6}},
+            n_trials=3,
+            seed=4,
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertIn("fewer than requested 3", candidates[0]["optimizer_trial"]["warnings"][0])
+
     def _ma_space(self) -> dict:
         return {"short_window": {"min": 5, "max": 12}, "long_window": {"min": 15, "max": 50}}
 

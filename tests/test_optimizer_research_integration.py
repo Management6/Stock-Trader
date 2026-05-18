@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -54,6 +55,9 @@ class OptimizerResearchIntegrationTests(unittest.TestCase):
             self.assertEqual(len(result.details["records"]), 2)
             self.assertIn("optimizer_trial", result.details["records"][0])
             self.assertIn(result.details["records"][0]["optimizer_trial"]["gate_outcome"], {"accepted", "rejected"})
+            persisted = [json.loads(line) for line in (root / "experiments.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertTrue(all("optimizer_trial" in record["metrics"] for record in persisted))
+            self.assertTrue(all(record["metrics"]["optimizer_trial"]["gate_outcome"] in {"accepted", "rejected"} for record in persisted))
             pending = orchestrator.approval_queue.list_pending()
             self.assertTrue(all("optimizer_trial" in request.metrics for request in pending))
 
@@ -98,6 +102,8 @@ class OptimizerResearchIntegrationTests(unittest.TestCase):
             self.assertEqual(len(result.details["records"]), 2)
             self.assertEqual(result.details["records"][0]["optimizer_trial"]["gate_outcome"], "failed")
             self.assertIn("synthetic optimizer trial failure", result.details["records"][0]["optimizer_trial"]["rejection_reason"])
+            persisted = [json.loads(line) for line in (root / "experiments.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(persisted[0]["metrics"]["optimizer_trial"]["gate_outcome"], "failed")
 
 
 if __name__ == "__main__":

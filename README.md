@@ -76,6 +76,16 @@ around barely-passing regions.
 window regions that have repeatedly failed in the current research regime,
 while the risky exploration budget still allows occasional probes.
 
+An optional deterministic optimizer can propose parameter candidates for the
+same strategy families. It is disabled by default; see
+[docs/optimizer.md](docs/optimizer.md) for configuration, trial metadata, and
+audit details.
+
+For staging the optional gates together without changing the default config, see
+[docs/strict_paper_profile.md](docs/strict_paper_profile.md). For the default
+vs. staging vs. approval-grade profile split, see
+[docs/paper_profiles.md](docs/paper_profiles.md).
+
 The current config also supports a champion band for the example moving-average
 strategy:
 

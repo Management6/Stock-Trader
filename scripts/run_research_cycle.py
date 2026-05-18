@@ -15,12 +15,13 @@ from multi_agent_trading_lab.orchestrator.orchestrator import TradingLabOrchestr
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a safe research and backtesting cycle.")
+    parser.add_argument("--settings", default="multi_agent_trading_lab/config/settings.yaml", help="Path to settings YAML.")
     parser.add_argument("--strategy-families", default=None, help="Comma-separated families: ma, ma_rsi, breakout.")
     parser.add_argument("--universe", default=None, help="Named universe from config/settings.yaml, e.g. core_asx, us_tech, full_mix.")
     parser.add_argument("--n-variants", type=int, default=None)
     args = parser.parse_args()
     families = [item.strip() for item in args.strategy_families.split(",") if item.strip()] if args.strategy_families else None
-    settings = load_settings("multi_agent_trading_lab/config/settings.yaml")
+    settings = load_settings(args.settings)
     if args.universe:
         settings.setdefault("data", {})["default_universe"] = args.universe
     result = TradingLabOrchestrator(settings).run_research_cycle(

@@ -1,0 +1,144 @@
+operating_mode: "paper"
+data:
+  provider: synthetic
+  default_universe: strict_paper
+  symbols:
+    - ALPHA
+    - BETA
+    - SPY
+  timeframe: 1d
+  start_date: 2023-01-03
+  end_date: 2023-08-31
+  as_of_date: 2023-08-31
+  cache_dir: data/cache
+  force_refresh: false
+universes:
+  strict_paper:
+    - ALPHA
+    - BETA
+    - SPY
+strategy_families:
+  - moving_average_crossover
+strategies:
+  moving_average_crossover:
+    short_window:
+      min: 5
+      max: 25
+    long_window:
+      min: 30
+      max: 90
+    default_variants: 4
+research:
+  variants_per_cycle: 4
+  max_experiments_per_run: 4
+  champion_band_enabled: false
+oos_validation:
+  enabled: true
+  split_ratio: 0.70
+  min_sharpe: -5.0
+  max_drawdown: -0.35
+  min_return: -0.20
+data_quality:
+  block_on_missing_columns: true
+  block_on_duplicate_dates: true
+  block_on_invalid_prices: true
+  block_on_stale_data: true
+  block_on_large_gaps: true
+  block_on_zero_volume: true
+  expect_volume: true
+  max_gap_days: 4
+  max_staleness_days: 5
+portfolio:
+  enabled: true
+  allocation_method: equal_weight
+  max_symbols: 3
+  min_valid_symbols: 2
+  min_total_return: -0.20
+  max_drawdown: -0.35
+  min_sharpe: -5.0
+  max_skipped_symbol_ratio: 0.50
+regime:
+  enabled: true
+  benchmark_symbol: SPY
+  lookback_days: 80
+  trend_ma_days: 30
+  max_volatility: 1.50
+  allowed_regimes:
+    - bullish
+    - trending
+    - bearish
+    - downtrend
+    - high_volatility
+  block_on_insufficient_data: true
+strategy_health:
+  enabled: true
+  quarantine_on_expectation_mismatch: true
+  max_rejection_rate: 0.50
+  repeated_rejection_threshold: 3
+  max_paper_drawdown: -0.10
+  min_signals_before_quarantine: 5
+  allow_manual_reactivation: true
+optimizer:
+  enabled: true
+  method: deterministic_random
+  seed: 42
+  n_trials: 4
+strategy_search:
+  focus_on_risk_passing_pct: 0.70
+  explore_risky_pct: 0.20
+  adaptive_narrowing_enabled: true
+  top_good_experiment_count: 5
+  risk_drawdown_buffer: 0.02
+  adaptive_long_window_max: 90
+  champion_band_focus_pct: 0.70
+research_objective:
+  type: sharpe
+  sharpe:
+    annualization_factor: 252
+    min_history_points: 30
+    fallback_return_weight: 1.0
+    fallback_drawdown_penalty: 150.0
+  custom:
+    return_weight: 1.0
+    drawdown_penalty: 1.0
+execution:
+  mode: "paper"
+  dry_run: false
+  default_quantity: 1
+backtest:
+  starting_capital: 100000
+  max_capital_per_trade_pct: 0.10
+  allow_leverage: false
+  commission_per_trade: 0.0
+  slippage_pct: 0.0005
+risk:
+  kill_switch_enabled: false
+  min_backtest_return: -0.20
+  max_drawdown_threshold: -0.35
+  research:
+    max_drawdown: -0.35
+  paper:
+    max_drawdown: -0.20
+  max_position_size: 25
+  max_capital_per_trade: 2500.0
+  max_open_positions: 3
+  daily_loss_limit: 1000.0
+  allowed_symbols:
+    - ALPHA
+    - BETA
+    - SPY
+  blocked_symbols: []
+  trading_hours_start: "09:30"
+  trading_hours_end: "16:00"
+  enforce_trading_hours: false
+broker:
+  selected: paper
+  paper_state_path: multi_agent_trading_lab/state/paper_broker_state.json
+  live_enabled: false
+  live_confirmation: ""
+experiment_log_path: multi_agent_trading_lab/experiments/experiment_memory.jsonl
+audit_log_path: multi_agent_trading_lab/experiments/audit_log.jsonl
+alert_log_path: multi_agent_trading_lab/experiments/alerts.jsonl
+approval_queue_path: multi_agent_trading_lab/state/strategy_approvals.json
+strategy_registry_path: multi_agent_trading_lab/strategies/strategy_registry.json
+system_state_path: multi_agent_trading_lab/state/system_state.json

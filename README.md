@@ -341,6 +341,22 @@ The command is read-only by default and writes JSON plus Markdown reports. It
 selects only robust, approval-accepted candidates and warns that the list is for
 paper monitoring only, not live trading. Approval-queue writing requires the
 explicit `--write-approval-queue` flag and still does not approve strategies.
+If no candidates qualify, the report is marked `status: "empty"` with
+`passed: false`; inspect the excluded-candidate buckets before rerunning or
+reviewing the full search artifacts.
+
+Run a watchlist-scoped paper cycle only after an operator reviews the watchlist:
+
+```bash
+python3 scripts/run_watchlist_paper_cycle.py \
+  --settings multi_agent_trading_lab/config/settings.approval_paper.yaml \
+  --watchlist /tmp/paper_watchlist/<watchlist-run>/paper_watchlist.json \
+  --output-root /tmp/watchlist_paper_cycle
+```
+
+This leaves the default paper cycle unchanged. It considers only selected
+watchlist candidates, audits skipped candidates, applies strategy-health
+quarantine decisions, writes a paper report, and remains paper-only.
 
 ## Research Objective And Sharpe Ratio
 

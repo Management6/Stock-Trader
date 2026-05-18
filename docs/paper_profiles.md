@@ -138,8 +138,9 @@ python3 scripts/select_paper_watchlist.py \
 The selector is read-only by default. It writes `paper_watchlist.json` and
 `paper_watchlist.md` with candidate ids, strategy families, parameters, OOS
 metrics, portfolio metrics, robustness summaries, cost assumptions, regime
-results, and reasons for selection. The report includes an explicit warning
-that the list is for paper monitoring only, not live trading.
+results, reasons for selection, excluded-candidate buckets, and top excluded
+candidate ids by reason. The report includes an explicit warning that the list
+is for paper monitoring only, not live trading.
 
 Ranking is deterministic. Eligible candidates must be both approval-accepted
 and robustness-robust. The ranking then prefers higher OOS Sharpe, positive and
@@ -161,6 +162,55 @@ python3 scripts/select_paper_watchlist.py \
 
 That flag writes an approval queue under the watchlist output directory. It
 does not approve strategies, enable live trading, or change broker behavior.
+
+If the watchlist is empty, the JSON report has `passed: false` and
+`status: "empty"` while the CLI still exits cleanly so operators can inspect the
+artifact. Start debugging with the excluded buckets:
+
+- `not_approval_accepted`: candidates did not pass the approval gate.
+- `not_robust`: candidates were present in robustness output but were fragile.
+- `missing_robustness`: approval-accepted candidates were not found in the
+  robustness summary.
+- `missing_metrics`: candidates lacked OOS or portfolio metrics needed for
+  operator ranking.
+- `duplicate_or_over_limit`: candidates were duplicates or ranked outside
+  `--max-candidates`.
+
+Do not loosen thresholds to fill an empty watchlist. Re-run approval search,
+inspect rejection and robustness failure reasons, and only create a paper
+watchlist when robust accepted candidates are available.
+
+## Watchlist Paper Cycle
+
+Once an operator has reviewed `paper_watchlist.md`, run a paper-only monitoring
+cycle scoped to the selected watchlist candidates:
+
+```bash
+python3 scripts/run_watchlist_paper_cycle.py \
+  --settings multi_agent_trading_lab/config/settings.approval_paper.yaml \
+  --watchlist /tmp/paper_watchlist/<watchlist-run>/paper_watchlist.json \
+  --output-root /tmp/watchlist_paper_cycle
+```
+
+This does not change the default broad paper cycle. It only runs when a
+watchlist path is supplied. The cycle considers selected watchlist candidate ids
+only, records skipped/non-selected candidates in the audit log, applies
+strategy-health quarantine decisions, generates paper signals, routes any paper
+orders through the paper execution path, and writes a daily paper monitoring
+report plus a cycle summary.
+
+Operator flow:
+
+1. Run the full approval search.
+2. Run the full robustness review.
+3. Select the paper watchlist.
+4. Run the watchlist paper cycle.
+5. Inspect paper attribution, strategy-health decisions, skipped candidates,
+   audit logs, and the daily paper report.
+
+The watchlist paper cycle is still paper-only. It does not enable live trading,
+does not auto-approve candidates, and does not write to the operational approval
+queue.
 
 Passing `approval_paper` still does not mean a strategy is live-trading ready.
 It only means the candidate passed a stricter local research and paper approval

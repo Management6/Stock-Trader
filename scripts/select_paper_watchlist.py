@@ -20,7 +20,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-candidates", type=int, default=5, help="Maximum watchlist candidates to select.")
     parser.add_argument("--output-root", default="multi_agent_trading_lab/validation_runs", help="Directory where watchlist artifacts are written.")
     parser.add_argument("--no-diversify-by-family", action="store_true", help="Disable round-robin diversification by strategy family.")
-    parser.add_argument("--write-approval-queue", action="store_true", help="Write selected candidates to a local approval queue artifact. Defaults to read-only.")
+    parser.add_argument(
+        "--write-approval-queue",
+        action="store_true",
+        help=(
+            "Write selected candidates to a sandbox approval queue under this run's output directory. "
+            "Defaults to read-only and does not write to operational state/strategy_approvals.json."
+        ),
+    )
     return parser
 
 
@@ -39,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"JSON watchlist: {summary.watchlist_json_path}")
     print(f"Markdown report: {summary.watchlist_markdown_path}")
     print(f"Selected candidates: {summary.selected_count}")
+    print(f"Status: {summary.status}")
     print(f"Approval queue written: {summary.approval_queue_written}")
     if summary.approval_queue_path is not None:
         print(f"Approval queue: {summary.approval_queue_path}")

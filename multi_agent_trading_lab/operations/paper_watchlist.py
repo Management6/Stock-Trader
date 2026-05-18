@@ -15,6 +15,14 @@ from multi_agent_trading_lab.strategies.registry import StrategyRegistry
 
 
 PAPER_MONITORING_WARNING = "Paper monitoring only. This watchlist does not enable live trading or authorize live execution."
+EXCLUDED_DETAIL_LIMIT = 20
+EXCLUDED_BUCKETS = (
+    "not_approval_accepted",
+    "not_robust",
+    "missing_robustness",
+    "missing_metrics",
+    "duplicate_or_over_limit",
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +34,9 @@ class PaperWatchlistSummary:
     diversify_by_family: bool
     selected_candidates: list[dict[str, Any]]
     excluded_counts: dict[str, int]
+    excluded_candidate_details: dict[str, list[dict[str, str]]]
+    excluded_detail_limit: int
+    status: str
     ranking_criteria: list[str]
     warning: str
     watchlist_json_path: Path
@@ -64,10 +75,23 @@ def select_paper_watchlist(
         for candidate in robustness_summary.get("candidates", [])
         if candidate.get("candidate_id")
     }
-    eligible, excluded_counts = _eligible_candidates(approval_records, robustness_by_id)
+    eligible, excluded_details_all = _eligible_candidates(approval_records, robustness_by_id)
     ranked = sorted(eligible, key=_ranking_key)
     selected = _diversified_selection(ranked, max_candidates) if diversify_by_family else ranked[:max_candidates]
+    selected_ids = {str(candidate.get("candidate_id")) for candidate in selected}
+    for candidate in ranked:
+        candidate_id = str(candidate.get("candidate_id"))
+        if candidate_id not in selected_ids:
+            _append_excluded(
+                excluded_details_all,
+                "duplicate_or_over_limit",
+                candidate_id,
+                str(candidate.get("strategy_family", "")),
+                f"Ranked outside max_candidates={max_candidates}.",
+            )
     selected = [_with_rank(candidate, rank) for rank, candidate in enumerate(selected, start=1)]
+    excluded_counts = {bucket: len(excluded_details_all[bucket]) for bucket in EXCLUDED_BUCKETS}
+    excluded_candidate_details = {bucket: details[:EXCLUDED_DETAIL_LIMIT] for bucket, details in excluded_details_all.items()}
     output_dir.mkdir(parents=True, exist_ok=True)
     watchlist_json_path = output_dir / "paper_watchlist.json"
     watchlist_markdown_path = output_dir / "paper_watchlist.md"
@@ -76,13 +100,16 @@ def select_paper_watchlist(
         approval_queue_path = output_dir / "state" / "strategy_approvals.json"
         _write_approval_queue(selected, approval_queue_path, output_dir)
     summary = PaperWatchlistSummary(
-        passed=True,
+        passed=bool(selected),
         output_dir=output_dir,
         selected_count=len(selected),
         max_candidates=max_candidates,
         diversify_by_family=diversify_by_family,
         selected_candidates=selected,
         excluded_counts=excluded_counts,
+        excluded_candidate_details=excluded_candidate_details,
+        excluded_detail_limit=EXCLUDED_DETAIL_LIMIT,
+        status="selected" if selected else "empty",
         ranking_criteria=_ranking_criteria(),
         warning=PAPER_MONITORING_WARNING,
         watchlist_json_path=watchlist_json_path,
@@ -98,26 +125,53 @@ def select_paper_watchlist(
 def _eligible_candidates(
     approval_records: list[dict[str, Any]],
     robustness_by_id: dict[str, dict[str, Any]],
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, str]]]]:
     eligible: list[dict[str, Any]] = []
-    excluded = {"not_accepted": 0, "not_robust": 0, "missing_robustness": 0}
+    excluded: dict[str, list[dict[str, str]]] = {bucket: [] for bucket in EXCLUDED_BUCKETS}
+    seen_eligible_ids: set[str] = set()
     for record in approval_records:
         strategy = dict(record.get("config", {}).get("strategy", {}))
         candidate_id = str(strategy.get("id") or record.get("id"))
+        family = str(record.get("strategy_name") or strategy.get("name") or "")
         optimizer_trial = dict(record.get("metrics", {}).get("optimizer_trial", {}))
         accepted = bool(record.get("risk_decision", {}).get("approved")) and optimizer_trial.get("gate_outcome") == "accepted"
         if not accepted:
-            excluded["not_accepted"] += 1
+            _append_excluded(excluded, "not_approval_accepted", candidate_id, family, "Approval gate outcome was not accepted.")
             continue
         robustness = robustness_by_id.get(candidate_id)
         if robustness is None:
-            excluded["missing_robustness"] += 1
+            _append_excluded(excluded, "missing_robustness", candidate_id, family, "No matching candidate was found in robustness summary.")
             continue
         if robustness.get("status") != "robust":
-            excluded["not_robust"] += 1
+            _append_excluded(excluded, "not_robust", candidate_id, family, f"Robustness status was {robustness.get('status')!r}.")
             continue
-        eligible.append(_candidate_payload(record, robustness))
+        candidate = _candidate_payload(record, robustness)
+        missing_metrics = _missing_metric_reasons(candidate)
+        if missing_metrics:
+            _append_excluded(excluded, "missing_metrics", candidate_id, family, "; ".join(missing_metrics))
+            continue
+        if candidate_id in seen_eligible_ids:
+            _append_excluded(excluded, "duplicate_or_over_limit", candidate_id, family, "Duplicate eligible candidate id.")
+            continue
+        seen_eligible_ids.add(candidate_id)
+        eligible.append(candidate)
     return eligible, excluded
+
+
+def _append_excluded(
+    excluded: dict[str, list[dict[str, str]]],
+    bucket: str,
+    candidate_id: str,
+    family: str,
+    reason: str,
+) -> None:
+    excluded.setdefault(bucket, []).append(
+        {
+            "candidate_id": candidate_id,
+            "strategy_family": family,
+            "reason": reason,
+        }
+    )
 
 
 def _candidate_payload(record: dict[str, Any], robustness: dict[str, Any]) -> dict[str, Any]:
@@ -169,6 +223,19 @@ def _selection_reasons(oos: dict[str, Any], portfolio: dict[str, Any], robustnes
     if robustness.get("checks_passed") is not None:
         reasons.append(f"Robustness checks passed: {robustness.get('checks_passed')}.")
     return reasons
+
+
+def _missing_metric_reasons(candidate: dict[str, Any]) -> list[str]:
+    oos = dict(candidate.get("oos_metrics", {}))
+    portfolio = dict(candidate.get("portfolio_metrics", {}))
+    required = {
+        "oos_metrics.sharpe_ratio": oos.get("sharpe_ratio"),
+        "oos_metrics.total_return": oos.get("total_return"),
+        "oos_metrics.max_drawdown": oos.get("max_drawdown"),
+        "portfolio_metrics.total_return": portfolio.get("total_return"),
+        "portfolio_metrics.max_drawdown": portfolio.get("max_drawdown"),
+    }
+    return [f"Missing {name}." for name, value in required.items() if value is None]
 
 
 def _ranking_key(candidate: dict[str, Any]) -> tuple[Any, ...]:
@@ -240,11 +307,18 @@ def _markdown_report(summary: PaperWatchlistSummary) -> str:
         f"Warning: {summary.warning}",
         "",
         f"Selected candidates: {summary.selected_count} of max {summary.max_candidates}",
+        f"Status: {summary.status}",
         f"Diversify by family: {summary.diversify_by_family}",
         f"Approval queue written: {summary.approval_queue_written}",
-        "",
-        "## Ranking Criteria",
     ]
+    if not summary.selected_candidates:
+        lines.extend(
+            [
+                "",
+                "No candidates were selected. Review the excluded-candidate buckets below before using this run operationally.",
+            ]
+        )
+    lines.extend(["", "## Ranking Criteria"])
     lines.extend(f"- {item}" for item in summary.ranking_criteria)
     lines.extend(["", "## Candidates"])
     for candidate in summary.selected_candidates:
@@ -264,6 +338,16 @@ def _markdown_report(summary: PaperWatchlistSummary) -> str:
             ]
         )
         lines.extend(f"  - {reason}" for reason in candidate.get("selection_reasons", []))
+    lines.extend(["", "## Excluded Candidates", ""])
+    lines.append(f"Detail lists are capped at {summary.excluded_detail_limit} candidates per bucket.")
+    for bucket in EXCLUDED_BUCKETS:
+        details = summary.excluded_candidate_details.get(bucket, [])
+        lines.extend(["", f"### {bucket}", "", f"Count: {summary.excluded_counts.get(bucket, 0)}"])
+        if not details:
+            lines.append("No candidates in this bucket.")
+            continue
+        for item in details:
+            lines.append(f"- `{item['candidate_id']}` ({item.get('strategy_family', '')}): {item['reason']}")
     lines.append("")
     return "\n".join(lines)
 

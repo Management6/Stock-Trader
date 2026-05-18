@@ -17,8 +17,12 @@ class PaperWatchlistTests(unittest.TestCase):
             markdown = summary.watchlist_markdown_path.read_text(encoding="utf-8")
 
         self.assertEqual(selected_ids, ["ma_good", "breakout_good"])
-        self.assertEqual(summary.excluded_counts["not_accepted"], 1)
+        self.assertTrue(summary.passed)
+        self.assertEqual(summary.status, "selected")
+        self.assertEqual(summary.excluded_counts["not_approval_accepted"], 1)
         self.assertEqual(summary.excluded_counts["not_robust"], 1)
+        self.assertEqual(summary.excluded_candidate_details["not_approval_accepted"][0]["candidate_id"], "breakout_rejected")
+        self.assertEqual(summary.excluded_candidate_details["not_robust"][0]["candidate_id"], "ma_fragile")
         self.assertIn("oos_metrics", summary.selected_candidates[0])
         self.assertIn("portfolio_metrics", summary.selected_candidates[0])
         self.assertIn("robustness", summary.selected_candidates[0])
@@ -28,6 +32,32 @@ class PaperWatchlistTests(unittest.TestCase):
         self.assertEqual(persisted["warning"], PAPER_MONITORING_WARNING)
         self.assertFalse(summary.approval_queue_written)
         self.assertIsNone(summary.approval_queue_path)
+
+    def test_empty_watchlist_is_visible_and_not_passed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            approval_summary, robustness_summary = self._write_inputs(Path(tmpdir), all_fragile=True)
+
+            summary = select_paper_watchlist(approval_summary, robustness_summary, max_candidates=5, output_root=Path(tmpdir) / "out")
+            persisted = json.loads(summary.watchlist_json_path.read_text(encoding="utf-8"))
+            markdown = summary.watchlist_markdown_path.read_text(encoding="utf-8")
+
+        self.assertFalse(summary.passed)
+        self.assertEqual(summary.status, "empty")
+        self.assertEqual(summary.selected_count, 0)
+        self.assertEqual(persisted["status"], "empty")
+        self.assertIn("No candidates were selected.", markdown)
+        self.assertGreater(summary.excluded_counts["not_robust"], 0)
+
+    def test_missing_metrics_are_reported_by_candidate_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            approval_summary, robustness_summary = self._write_inputs(Path(tmpdir), include_missing_metrics=True)
+
+            summary = select_paper_watchlist(approval_summary, robustness_summary, max_candidates=5, output_root=Path(tmpdir) / "out")
+            missing = summary.excluded_candidate_details["missing_metrics"]
+
+        self.assertIn("missing_metrics_candidate", [item["candidate_id"] for item in missing])
+        self.assertIn("Missing oos_metrics.sharpe_ratio.", missing[0]["reason"])
+        self.assertEqual([candidate["candidate_id"] for candidate in summary.selected_candidates], ["ma_good", "breakout_good"])
 
     def test_max_candidates_is_respected_and_ranking_is_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as first_dir, tempfile.TemporaryDirectory() as second_dir:
@@ -51,6 +81,16 @@ class PaperWatchlistTests(unittest.TestCase):
         self.assertEqual([item["candidate_id"] for item in diversified.selected_candidates], ["ma_good", "breakout_good", "ma_extra"])
         self.assertEqual([item["candidate_id"] for item in concentrated.selected_candidates], ["ma_good", "ma_extra", "breakout_good"])
 
+    def test_diversification_rotates_across_three_or_more_families(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            approval_summary, robustness_summary = self._write_inputs(Path(tmpdir), include_extra=True, include_third_family=True)
+
+            diversified = select_paper_watchlist(approval_summary, robustness_summary, max_candidates=3, output_root=Path(tmpdir) / "diverse", diversify_by_family=True)
+            concentrated = select_paper_watchlist(approval_summary, robustness_summary, max_candidates=3, output_root=Path(tmpdir) / "concentrated", diversify_by_family=False)
+
+        self.assertEqual([item["candidate_id"] for item in diversified.selected_candidates], ["ma_good", "mean_reversion_good", "breakout_good"])
+        self.assertEqual([item["candidate_id"] for item in concentrated.selected_candidates], ["ma_good", "ma_extra", "mean_reversion_good"])
+
     def test_write_approval_queue_is_explicit_and_off_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             approval_summary, robustness_summary = self._write_inputs(Path(tmpdir))
@@ -64,7 +104,14 @@ class PaperWatchlistTests(unittest.TestCase):
         self.assertTrue(writable.approval_queue_written)
         self.assertIsNotNone(writable.approval_queue_path)
 
-    def _write_inputs(self, root: Path, include_extra: bool = False) -> tuple[Path, Path]:
+    def _write_inputs(
+        self,
+        root: Path,
+        include_extra: bool = False,
+        include_third_family: bool = False,
+        include_missing_metrics: bool = False,
+        all_fragile: bool = False,
+    ) -> tuple[Path, Path]:
         root.mkdir(parents=True, exist_ok=True)
         experiment_log = root / "experiments.jsonl"
         records = [
@@ -82,6 +129,17 @@ class PaperWatchlistTests(unittest.TestCase):
         if include_extra:
             records.append(self._record("ma_extra", "moving_average_crossover", accepted=True, oos_sharpe=1.9, oos_return=0.025, oos_drawdown=-0.02, portfolio_return=0.035, portfolio_drawdown=-0.025))
             robustness_candidates.append(self._robustness("ma_extra", "robust"))
+        if include_third_family:
+            records.append(self._record("mean_reversion_good", "mean_reversion", accepted=True, oos_sharpe=1.5, oos_return=0.023, oos_drawdown=-0.018, portfolio_return=0.032, portfolio_drawdown=-0.024))
+            robustness_candidates.append(self._robustness("mean_reversion_good", "robust"))
+        if include_missing_metrics:
+            records.append(self._record("missing_metrics_candidate", "moving_average_crossover", accepted=True, oos_sharpe=1.4, oos_return=0.02, oos_drawdown=-0.02, portfolio_return=0.02, portfolio_drawdown=-0.02, include_metrics=False))
+            robustness_candidates.append(self._robustness("missing_metrics_candidate", "robust"))
+        if all_fragile:
+            robustness_candidates = [
+                {**candidate, "status": "fragile", "checks_passed": 10, "checks_failed": 2}
+                for candidate in robustness_candidates
+            ]
         experiment_log.write_text("\n".join(json.dumps(record, sort_keys=True) for record in records) + "\n", encoding="utf-8")
         approval_summary = root / "approval_search_summary.json"
         approval_summary.write_text(json.dumps({"experiment_log_path": str(experiment_log), "accepted_count": 3, "rejected_count": 1, "total_trials": len(records)}) + "\n", encoding="utf-8")
@@ -99,6 +157,7 @@ class PaperWatchlistTests(unittest.TestCase):
         oos_drawdown: float,
         portfolio_return: float,
         portfolio_drawdown: float,
+        include_metrics: bool = True,
     ) -> dict:
         strategy = {
             "id": candidate_id,
@@ -106,21 +165,27 @@ class PaperWatchlistTests(unittest.TestCase):
             "version": "0.1.0",
             "strategy_params": {"short_window": 5, "long_window": 30},
         }
+        metrics = {
+            "total_return": oos_return,
+            "max_drawdown": oos_drawdown,
+            "sharpe_ratio": oos_sharpe,
+            "cost_assumptions": {"commission_per_trade": 0.0, "slippage_pct": 0.0005},
+            "optimizer_trial": {"gate_outcome": "accepted" if accepted else "rejected", "objective_score": oos_sharpe, "trial_number": 1},
+        }
+        if include_metrics:
+            metrics.update(
+                {
+                    "walk_forward": {"out_of_sample": {"metrics": {"sharpe_ratio": oos_sharpe, "total_return": oos_return, "max_drawdown": oos_drawdown}}},
+                    "portfolio_backtest": {"metrics": {"total_return": portfolio_return, "max_drawdown": portfolio_drawdown, "sharpe_ratio": oos_sharpe + 0.5}},
+                    "market_regime": {"regime": "bullish"},
+                }
+            )
         return {
             "id": candidate_id,
             "strategy_name": family,
             "strategy_params": strategy["strategy_params"],
             "config": {"strategy": strategy},
-            "metrics": {
-                "total_return": oos_return,
-                "max_drawdown": oos_drawdown,
-                "sharpe_ratio": oos_sharpe,
-                "cost_assumptions": {"commission_per_trade": 0.0, "slippage_pct": 0.0005},
-                "optimizer_trial": {"gate_outcome": "accepted" if accepted else "rejected", "objective_score": oos_sharpe, "trial_number": 1},
-                "walk_forward": {"out_of_sample": {"metrics": {"sharpe_ratio": oos_sharpe, "total_return": oos_return, "max_drawdown": oos_drawdown}}},
-                "portfolio_backtest": {"metrics": {"total_return": portfolio_return, "max_drawdown": portfolio_drawdown, "sharpe_ratio": oos_sharpe + 0.5}},
-                "market_regime": {"regime": "bullish"},
-            },
+            "metrics": metrics,
             "risk_decision": {"approved": accepted, "reason": "accepted" if accepted else "rejected"},
         }
 
